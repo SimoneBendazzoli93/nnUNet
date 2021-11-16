@@ -16,11 +16,11 @@
 import ast
 from copy import deepcopy
 from multiprocessing.pool import Pool
-
+from tqdm import tqdm
 import numpy as np
 from nnunet.configuration import default_num_threads
 from nnunet.evaluation.evaluator import aggregate_scores
-from scipy.ndimage import label
+from scipy.ndimage import label, morphology
 import SimpleITK as sitk
 from nnunet.utilities.sitk_stuff import copy_geometry
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -28,7 +28,7 @@ import shutil
 
 
 def load_remove_save(input_file: str, output_file: str, for_which_classes: list,
-                     minimum_valid_object_size: dict = None):
+                     minimum_valid_object_size: dict = None, assign_disconnected=False):
     # Only objects larger than minimum_valid_object_size will be removed. Keys in minimum_valid_object_size must
     # match entries in for_which_classes
     img_in = sitk.ReadImage(input_file)
@@ -38,6 +38,26 @@ def load_remove_save(input_file: str, output_file: str, for_which_classes: list,
     image, largest_removed, kept_size = remove_all_but_the_largest_connected_component(img_npy, for_which_classes,
                                                                                        volume_per_voxel,
                                                                                        minimum_valid_object_size)
+    img_original = sitk.GetArrayFromImage(sitk.ReadImage(input_file))
+
+    if assign_disconnected:
+        disconnected_components_array, n_disconnected_components = label(
+            ((img_original - image) > 0).astype(int),structure=morphology.generate_binary_structure(3, 2))
+        for disconnected_component in tqdm(range(1, n_disconnected_components), desc="Analyzing disconnected components"):
+            label_assigned = False
+            for label_id in for_which_classes:
+                if label_assigned:
+                    continue
+                image = np.where(disconnected_components_array == disconnected_component, label_id,
+                                         image)
+                label_mask = np.where(image == label_id, 1, 0)
+                label_mask, num_components = label(label_mask, structure=morphology.generate_binary_structure(3, 2))
+                if num_components > 1:
+                    image = np.where(disconnected_components_array == disconnected_component, 0, image)
+                else:
+                    #print("Disconnected component {} assigned to label {}".format(disconnected_component, label_id))
+                    label_assigned = True
+
     # print(input_file, "kept:", kept_size)
     img_out_itk = sitk.GetImageFromArray(image)
     img_out_itk = copy_geometry(img_out_itk, img_in)
@@ -124,7 +144,8 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
                              final_subf_name="validation_final", processes=default_num_threads,
                              dice_threshold=0, debug=False,
                              advanced_postprocessing=False,
-                             pp_filename="postprocessing.json"):
+                             pp_filename="postprocessing.json",
+                             assign_disconnected=False):
     """
     :param base:
     :param gt_labels_folder: subfolder of base with niftis of ground truth labels
@@ -137,16 +158,18 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
     :return:
     """
     # lets see what classes are in the dataset
+    if isfile(join(base, final_subf_name, "summary.json")):
+        return
     classes = [int(i) for i in load_json(join(base, raw_subfolder_name, "summary.json"))['results']['mean'].keys() if
                int(i) != 0]
 
     folder_all_classes_as_fg = join(base, temp_folder + "_allClasses")
     folder_per_class = join(base, temp_folder + "_perClass")
 
-    if isdir(folder_all_classes_as_fg):
-        shutil.rmtree(folder_all_classes_as_fg)
-    if isdir(folder_per_class):
-        shutil.rmtree(folder_per_class)
+    #if isdir(folder_all_classes_as_fg):
+    #    shutil.rmtree(folder_all_classes_as_fg)
+    #if isdir(folder_per_class):
+    #    shutil.rmtree(folder_per_class)
 
     # multiprocessing rules
     p = Pool(processes)
@@ -169,7 +192,7 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
     # independently for each class after we already did dc_per_class_pp_all
     pp_results['for_which_classes'] = []
     pp_results['min_valid_object_sizes'] = {}
-
+    pp_results['assign_disconnected'] = assign_disconnected
 
     validation_result_raw = load_json(join(base, raw_subfolder_name, "summary.json"))['results']
     pp_results['num_samples'] = len(validation_result_raw['all'])
@@ -222,10 +245,11 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
             p.starmap_async(load_remove_save, ((predicted_segmentation, output_file, (classes,), min_size_kept),)))
         pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
 
-    _ = [i.get() for i in results]
+    _ = [i.get() for i in tqdm(results, desc="Predictions PP Bg vs Fg")]
 
     # evaluate postprocessed predictions
-    _ = aggregate_scores(pred_gt_tuples, labels=classes,
+    if not isfile(join(folder_all_classes_as_fg, "summary.json")):
+        _ = aggregate_scores(pred_gt_tuples, labels=classes,
                          json_output_file=join(folder_all_classes_as_fg, "summary.json"),
                          json_author="Fabian", num_threads=processes)
 
@@ -315,13 +339,15 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
         for f in fnames:
             predicted_segmentation = join(source, f)
             output_file = join(folder_per_class, f)
-            results.append(p.starmap_async(load_remove_save, ((predicted_segmentation, output_file, classes, min_size_kept),)))
+            if not isfile(output_file):
+                results.append(p.starmap_async(load_remove_save, ((predicted_segmentation, output_file, classes, min_size_kept, assign_disconnected),)))
             pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
 
-        _ = [i.get() for i in results]
+        _ = [i.get() for i in tqdm(results, desc="Predictions PP All Classes")]
 
         # evaluate postprocessed predictions
-        _ = aggregate_scores(pred_gt_tuples, labels=classes,
+        if not isfile(join(folder_per_class, "summary.json")):
+            _ = aggregate_scores(pred_gt_tuples, labels=classes,
                              json_output_file=join(folder_per_class, "summary.json"),
                              json_author="Fabian", num_threads=processes)
 
@@ -370,16 +396,18 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
 
         # now remove all but the largest connected component for each class
         output_file = join(base, final_subf_name, f)
-        results.append(p.starmap_async(load_remove_save, (
+        if not isfile(output_file):
+            results.append(p.starmap_async(load_remove_save, (
             (predicted_segmentation, output_file, pp_results['for_which_classes'],
-             pp_results['min_valid_object_sizes']),)))
+             pp_results['min_valid_object_sizes'], assign_disconnected),)))
 
         pred_gt_tuples.append([output_file,
                                join(gt_labels_folder, f)])
 
-    _ = [i.get() for i in results]
+    _ = [i.get() for i in tqdm(results, desc="Predictions PP")]
     # evaluate postprocessed predictions
-    _ = aggregate_scores(pred_gt_tuples, labels=classes,
+    if not isfile(join(base, final_subf_name, "summary.json")):
+        _ = aggregate_scores(pred_gt_tuples, labels=classes,
                          json_output_file=join(base, final_subf_name, "summary.json"),
                          json_author="Fabian", num_threads=processes)
 
