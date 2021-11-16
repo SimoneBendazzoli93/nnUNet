@@ -25,6 +25,9 @@ import SimpleITK as sitk
 from nnunet.evaluation.metrics import ConfusionMatrix, ALL_METRICS
 from batchgenerators.utilities.file_and_folder_operations import save_json, subfiles, join
 from collections import OrderedDict
+from pathlib import Path
+from tqdm import tqdm
+from batchgenerators.utilities.file_and_folder_operations import *
 
 
 class Evaluator:
@@ -51,10 +54,10 @@ class Evaluator:
     ]
 
     default_advanced_metrics = [
-        #"Hausdorff Distance",
+        "Hausdorff Distance",
         "Hausdorff Distance 95",
-        #"Avg. Surface Distance",
-        #"Avg. Symmetric Surface Distance"
+        "Avg. Surface Distance",
+        "Avg. Symmetric Surface Distance"
     ]
 
     def __init__(self,
@@ -149,7 +152,7 @@ class Evaluator:
         if metric not in self.metrics:
             self.metrics.append(metric)
 
-    def evaluate(self, test=None, reference=None, advanced=False, **metric_kwargs):
+    def evaluate(self, test=None, reference=None, advanced=True, **metric_kwargs):
         """Compute metrics for segmentations."""
         if test is not None:
             self.set_test(test)
@@ -315,6 +318,8 @@ def run_evaluation(args):
         current_scores["test"] = test
     if type(ref) == str:
         current_scores["reference"] = ref
+    with open(Path(test).parent.joinpath(test[:-7]+".json"), 'w') as json_output:
+        json.dump(current_scores, json_output)
     return current_scores
 
 
@@ -356,10 +361,22 @@ def aggregate_scores(test_ref_pairs,
 
     test = [i[0] for i in test_ref_pairs]
     ref = [i[1] for i in test_ref_pairs]
+
     p = Pool(num_threads)
-    all_res = p.map(run_evaluation, zip(test, ref, [evaluator]*len(ref), [metric_kwargs]*len(ref)))
+    metrics_evaluation = []
+    for test_case, ref_case in zip(test, ref):
+        if not isfile(Path(test_case).parent.joinpath(test_case[:-7]+".json")):
+            metrics_evaluation.append(p.starmap_async(run_evaluation,(((test_case, ref_case, evaluator, metric_kwargs),),)))
+
+    _ = [i.get() for i in tqdm(metrics_evaluation, desc="Metrics Evaluation")]
     p.close()
     p.join()
+
+    all_res = []
+
+    for test_case in test:
+        with open(Path(test_case).parent.joinpath(test_case[:-7]+".json"), 'r') as case_res:
+            all_res.append(json.load(case_res))
 
     for i in range(len(all_res)):
         all_scores["all"].append(all_res[i])
