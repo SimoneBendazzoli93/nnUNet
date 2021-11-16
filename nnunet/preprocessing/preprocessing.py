@@ -319,6 +319,7 @@ class GenericPreprocessor(object):
 
     def _run_internal(self, target_spacing, case_identifier, output_folder_stage, cropped_output_dir, force_separate_z,
                       all_classes):
+        print("Running: ", case_identifier)
         data, seg, properties = self.load_cropped(cropped_output_dir, case_identifier)
 
         data = data.transpose((0, *[i + 1 for i in self.transpose_forward]))
@@ -388,8 +389,9 @@ class GenericPreprocessor(object):
             spacing = target_spacings[i]
             for j, case in enumerate(list_of_cropped_npz_files):
                 case_identifier = get_case_identifier_from_npz(case)
-                args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
-                all_args.append(args)
+                if not os.path.isfile(os.path.join(output_folder_stage, "%s.npz" % case_identifier)) or not os.path.isfile(os.path.join(output_folder_stage, "%s.pkl" % case_identifier)):
+                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
+                    all_args.append(args)
             p = Pool(num_threads[i])
             p.starmap(self._run_internal, all_args)
             p.close()
@@ -602,8 +604,11 @@ class PreprocessorFor2D(GenericPreprocessor):
             spacing = target_spacings[i]
             for j, case in enumerate(list_of_cropped_npz_files):
                 case_identifier = get_case_identifier_from_npz(case)
-                args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
-                all_args.append(args)
+                if not os.path.isfile(
+                        os.path.join(output_folder_stage, "%s.npz" % case_identifier)) or not os.path.isfile(
+                        os.path.join(output_folder_stage, "%s.pkl" % case_identifier)):
+                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
+                    all_args.append(args)
         p = Pool(num_threads)
         p.starmap(self._run_internal, all_args)
         p.close()
