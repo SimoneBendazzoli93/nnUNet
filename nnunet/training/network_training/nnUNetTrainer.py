@@ -639,7 +639,9 @@ class nnUNetTrainer(NetworkTrainer):
         self.print_to_log_file("evaluation of raw predictions")
         task = self.dataset_directory.split("/")[-1]
         job_name = self.experiment_name
-        _ = aggregate_scores(pred_gt_tuples, labels=list(range(self.num_classes)),
+
+        if not isfile(join(output_folder, "summary.json")):
+            _ = aggregate_scores(pred_gt_tuples, labels=list(range(self.num_classes)),
                              json_output_file=join(output_folder, "summary.json"),
                              json_name=job_name + " val tiled %s" % (str(use_sliding_window)),
                              json_author="Fabian",
