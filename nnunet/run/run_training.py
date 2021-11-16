@@ -89,12 +89,14 @@ def main():
                         help='path to nnU-Net checkpoint file to be used as pretrained model (use .model '
                              'file, for example model_final_checkpoint.model). Will only be used when actually training. '
                              'Optional. Beta. Use with caution.')
-
+    parser.add_argument("--cascade-step", help="Optional value to indicate which cascade step to run.",
+                        default=None, required=False)
     args = parser.parse_args()
 
     task = args.task
     fold = args.fold
     network = args.network
+    cascade_step = args.cascade_step
     network_trainer = args.network_trainer
     validation_only = args.validation_only
     plans_identifier = args.p
@@ -132,9 +134,11 @@ def main():
     #     force_separate_z = True
     # else:
     #     raise ValueError("force_separate_z must be None, True or False. Given: %s" % force_separate_z)
-
+    cascade_step_name = None
+    if cascade_step is not None:
+        cascade_step_name = "step_{}".format(cascade_step)
     plans_file, output_folder_name, dataset_directory, batch_dice, stage, \
-    trainer_class = get_default_configuration(network, task, network_trainer, plans_identifier)
+        trainer_class = get_default_configuration(network, task, network_trainer, plans_identifier, step=cascade_step_name )
 
     if trainer_class is None:
         raise RuntimeError("Could not find trainer class in nnunet.training.network_training")
@@ -186,10 +190,16 @@ def main():
         trainer.network.eval()
 
         # predict validation
-        trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+
+        print("Cascade-Step",cascade_step)
+        if cascade_step is None or cascade_step == "0":
+            trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
                          run_postprocessing_on_folds=not disable_postprocessing_on_folds,
                          overwrite=args.val_disable_overwrite)
-
+        elif cascade_step == "1":
+            trainer.validate(save_softmax=args.npz, validation_folder_name=val_folder,
+                             run_postprocessing_on_folds=not disable_postprocessing_on_folds,
+                             overwrite=args.val_disable_overwrite, run_cascade_validation=True)
         if network == '3d_lowres' and not args.disable_next_stage_pred:
             print("predicting segmentations for the next stage of the cascade")
             predict_next_stage(trainer, join(dataset_directory, trainer.plans['data_identifier'] + "_stage%d" % 1))
