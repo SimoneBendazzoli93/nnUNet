@@ -155,7 +155,7 @@ def crop_2D_image_force_fg(img, crop_size, valid_voxels):
 class DataLoader3D(SlimDataLoaderBase):
     def __init__(self, data, patch_size, final_patch_size, batch_size, has_prev_stage=False,
                  oversample_foreground_percent=0.0, memmap_mode="r", pad_mode="edge", pad_kwargs_data=None,
-                 pad_sides=None):
+                 pad_sides=None, n_tasks=1):
         """
         This is the basic data loader for 3D networks. It uses preprocessed data as produced by my (Fabian) preprocessing.
         You can load the data with load_dataset(folder) where folder is the folder where the npz files are located. If there
@@ -188,6 +188,7 @@ class DataLoader3D(SlimDataLoaderBase):
         self.final_patch_size = final_patch_size
         self.has_prev_stage = has_prev_stage
         self.patch_size = patch_size
+        self.n_tasks = n_tasks
         self.list_of_keys = list(self._data.keys())
         # need_to_pad denotes by how much we need to pad the data so that if we sample a patch of size final_patch_size
         # (which is what the network will get) these patches will also cover the border of the patients
@@ -208,14 +209,14 @@ class DataLoader3D(SlimDataLoaderBase):
         if self.has_prev_stage:
             num_seg = 2
         else:
-            num_seg = 1
+            num_seg = self.n_tasks
 
         k = list(self._data.keys())[0]
         if isfile(self._data[k]['data_file'][:-4] + ".npy"):
             case_all_data = np.load(self._data[k]['data_file'][:-4] + ".npy", self.memmap_mode)
         else:
             case_all_data = np.load(self._data[k]['data_file'])['data']
-        num_color_channels = case_all_data.shape[0] - 1
+        num_color_channels = case_all_data.shape[0] - self.n_tasks
         data_shape = (self.batch_size, num_color_channels, *self.patch_size)
         seg_shape = (self.batch_size, num_seg, *self.patch_size)
         return data_shape, seg_shape
@@ -355,13 +356,14 @@ class DataLoader3D(SlimDataLoaderBase):
                                           valid_bbox_y_lb:valid_bbox_y_ub,
                                           valid_bbox_z_lb:valid_bbox_z_ub]
 
-            data[j] = np.pad(case_all_data[:-1], ((0, 0),
+            data[j] = np.pad(case_all_data[:-self.n_tasks], ((0, 0),
                                                   (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
                                                   (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
                                                   (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
                              self.pad_mode, **self.pad_kwargs_data)
 
-            seg[j, 0] = np.pad(case_all_data[-1:], ((0, 0),
+            for task in range(self.n_tasks):
+                seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):-(self.n_tasks-task)+1], ((0, 0),
                                                     (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
                                                     (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
                                                     (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
