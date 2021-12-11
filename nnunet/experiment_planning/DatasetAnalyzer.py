@@ -35,6 +35,10 @@ class DatasetAnalyzer(object):
         self.num_processes = num_processes
         self.overwrite = overwrite
         self.folder_with_cropped_data = folder_with_cropped_data
+        datasetjson = load_json(join(self.folder_with_cropped_data, "dataset.json"))
+        self.n_tasks = 1
+        if 'n_tasks' in datasetjson and datasetjson['n_tasks'] > 1:
+            self.n_tasks = datasetjson['n_tasks']
         self.sizes = self.spacings = None
         self.patient_identifiers = get_patient_identifiers_from_cropped_files(self.folder_with_cropped_data)
         assert isfile(join(self.folder_with_cropped_data, "dataset.json")), \
@@ -108,7 +112,10 @@ class DatasetAnalyzer(object):
 
     def get_classes(self):
         datasetjson = load_json(join(self.folder_with_cropped_data, "dataset.json"))
-        return datasetjson['labels']
+        if self.n_tasks > 1:
+            return datasetjson['labels'][0]
+        else:
+            return datasetjson['labels']
 
     def analyse_segmentations(self):
         class_dct = self.get_classes()
@@ -161,7 +168,7 @@ class DatasetAnalyzer(object):
     def _get_voxels_in_foreground(self, patient_identifier, modality_id):
         all_data = np.load(join(self.folder_with_cropped_data, patient_identifier) + ".npz")['data']
         modality = all_data[modality_id]
-        mask = all_data[-1] > 0
+        mask = all_data[-self.n_tasks] > 0
         voxels = list(modality[mask][::10]) # no need to take every voxel
         return voxels
 
@@ -251,6 +258,7 @@ class DatasetAnalyzer(object):
         dataset_properties['modalities'] = modalities  # {idx: modality name}
         dataset_properties['intensityproperties'] = intensityproperties
         dataset_properties['size_reductions'] = size_reductions  # {patient_id: size_reduction}
+        dataset_properties['n_tasks'] = self.n_tasks
 
         save_pickle(dataset_properties, join(self.folder_with_cropped_data, "dataset_properties.pkl"))
         return dataset_properties

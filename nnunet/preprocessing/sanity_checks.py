@@ -104,6 +104,9 @@ def verify_dataset_integrity(folder):
     dataset = load_json(join(folder, "dataset.json"))
     training_cases = dataset['training']
     num_modalities = len(dataset['modality'].keys())
+    num_tasks = 1
+    if "n_tasks" in dataset:
+        num_tasks = dataset["n_tasks"]
     test_cases = dataset['test']
     expected_train_identifiers = [i['image'].split("/")[-1][:-7] for i in training_cases]
     expected_test_identifiers = [i.split("/")[-1][:-7] for i in test_cases]
@@ -124,16 +127,33 @@ def verify_dataset_integrity(folder):
         print("checking case", c)
         # check if all files are present
         expected_label_file = join(folder, "labelsTr", c + ".nii.gz")
+        if num_tasks > 1:
+            expected_label_file = [join(folder, "labelsTr", c + "_%04.0d.nii.gz" % i)for i in range(num_tasks)]
+            assert all([isfile(i) for i in
+                        expected_label_file]), "could not find label file for case %s. Expected file: \n%s" % (
+                c, expected_label_file)
+        else:
+            assert isfile(expected_label_file), "could not find label file for case %s. Expected file: \n%s" % (
+                c, expected_label_file)
+
         label_files.append(expected_label_file)
+
         expected_image_files = [join(folder, "imagesTr", c + "_%04.0d.nii.gz" % i) for i in range(num_modalities)]
-        assert isfile(expected_label_file), "could not find label file for case %s. Expected file: \n%s" % (
-            c, expected_label_file)
+
         assert all([isfile(i) for i in
                     expected_image_files]), "some image files are missing for case %s. Expected files:\n %s" % (
             c, expected_image_files)
 
         # verify that all modalities and the label have the same shape and geometry.
-        label_itk = sitk.ReadImage(expected_label_file)
+        if num_tasks > 1:
+            for i in range(num_tasks):
+                label_itk = sitk.ReadImage(expected_label_file[i])
+                nans_in_seg = np.any(np.isnan(sitk.GetArrayFromImage(label_itk)))
+                has_nan = has_nan | nans_in_seg
+                if nans_in_seg:
+                    print("There are NAN values in segmentation %s" % expected_label_file[i])
+        else:
+            label_itk = sitk.ReadImage(expected_label_file)
 
         nans_in_seg = np.any(np.isnan(sitk.GetArrayFromImage(label_itk)))
         has_nan = has_nan | nans_in_seg
@@ -152,12 +172,26 @@ def verify_dataset_integrity(folder):
                       "are coregistered and have the same geometry as the label" % expected_image_files[0][:-12])
             if nans_in_image:
                 print("There are NAN values in image %s" % expected_image_files[i])
+        if num_tasks > 1:
+            labels_itk = [sitk.ReadImage(i) for i in expected_label_file]
+            for i, label in enumerate(labels_itk):
+                same_geometry = verify_same_geometry(img,label)
+                if not same_geometry:
+                    geometries_OK = False
+                    print(
+                        "The geometry of the label %s does not match the geometry of the image file. The pixel arrays "
+                        "will not be aligned and nnU-Net cannot use this data. Please make sure your image modalities "
+                        "are coregistered and have the same geometry as the label" % expected_label_file[0][:-12])
 
         # now remove checked files from the lists nii_files_in_imagesTr and nii_files_in_labelsTr
         for i in expected_image_files:
             nii_files_in_imagesTr.remove(os.path.basename(i))
-        nii_files_in_labelsTr.remove(os.path.basename(expected_label_file))
 
+        if num_tasks > 1:
+            for i in expected_label_file:
+                nii_files_in_labelsTr.remove(os.path.basename(i))
+        else:
+            nii_files_in_labelsTr.remove(os.path.basename(expected_label_file))
     # check for stragglers
     assert len(
         nii_files_in_imagesTr) == 0, "there are training cases in imagesTr that are not listed in dataset.json: %s" % nii_files_in_imagesTr
@@ -166,25 +200,52 @@ def verify_dataset_integrity(folder):
 
     # verify that only properly declared values are present in the labels
     print("Verifying label values")
-    expected_labels = list(int(i) for i in dataset['labels'].keys())
-
+    if num_tasks > 1:
+        expected_labels = []
+        for task in range(num_tasks):
+            expected_labels.append(list(int(i) for i in dataset['labels'][task].keys()))
+    else:
+        expected_labels = list(int(i) for i in dataset['labels'].keys())
     # check if labels are in consecutive order
-    assert expected_labels[0] == 0, 'The first label must be 0 and maps to the background'
-    labels_valid_consecutive = np.ediff1d(expected_labels) == 1
-    assert all(labels_valid_consecutive), f'Labels must be in consecutive order (0, 1, 2, ...). The labels {np.array(expected_labels)[1:][~labels_valid_consecutive]} do not satisfy this restriction'
+    if num_tasks > 1:
+        for task in range(num_tasks):
+            assert expected_labels[task][0] == 0, 'The first label must be 0 and maps to the background'
+            labels_valid_consecutive = np.ediff1d(expected_labels[task]) == 1
+            assert all(
+                labels_valid_consecutive), f'Labels must be in consecutive order (0, 1, 2, ...). The labels {np.array(expected_labels[task])[1:][~labels_valid_consecutive]} do not satisfy this restriction'
 
-    p = Pool(default_num_threads)
-    results = p.starmap(verify_contains_only_expected_labels, zip(label_files, [expected_labels] * len(label_files)))
-    p.close()
-    p.join()
+            p = Pool(default_num_threads)
+            label_files_to_check = [label_files_task[task] for label_files_task in label_files]
+            results = p.starmap(verify_contains_only_expected_labels,
+                                zip(label_files_to_check, [expected_labels[task]] * len(label_files_to_check)))
+            p.close()
+            p.join()
 
-    fail = False
-    print("Expected label values are", expected_labels)
-    for i, r in enumerate(results):
-        if not r[0]:
-            print("Unexpected labels found in file %s. Found these unexpected values (they should not be there) %s" % (
-                label_files[i], r[1]))
-            fail = True
+            fail = False
+            print("Expected label values are", expected_labels[task])
+            for i, r in enumerate(results):
+                if not r[0]:
+                    print(
+                        "Unexpected labels found in file %s. Found these unexpected values (they should not be there) %s" % (
+                            label_files[i], r[1]))
+                    fail = True
+    else:
+        assert expected_labels[0] == 0, 'The first label must be 0 and maps to the background'
+        labels_valid_consecutive = np.ediff1d(expected_labels) == 1
+        assert all(labels_valid_consecutive), f'Labels must be in consecutive order (0, 1, 2, ...). The labels {np.array(expected_labels)[1:][~labels_valid_consecutive]} do not satisfy this restriction'
+
+        p = Pool(default_num_threads)
+        results = p.starmap(verify_contains_only_expected_labels, zip(label_files, [expected_labels] * len(label_files)))
+        p.close()
+        p.join()
+
+        fail = False
+        print("Expected label values are", expected_labels)
+        for i, r in enumerate(results):
+            if not r[0]:
+                print("Unexpected labels found in file %s. Found these unexpected values (they should not be there) %s" % (
+                    label_files[i], r[1]))
+                fail = True
 
     if fail:
         raise AssertionError(

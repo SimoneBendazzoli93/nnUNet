@@ -92,7 +92,12 @@ def create_lists_from_splitted_dataset(base_folder_splitted):
         for mod in range(num_modalities):
             cur_pat.append(join(base_folder_splitted, "imagesTr", tr['image'].split("/")[-1][:-7] +
                                 "_%04.0d.nii.gz" % mod))
-        cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split("/")[-1]))
+        if 'n_tasks' in d and d['n_tasks'] > 1:
+            for task in range(d['n_tasks']):
+                cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split("/")[-1][:-7] +
+                                "_%04.0d.nii.gz" % task))
+        else:
+            cur_pat.append(join(base_folder_splitted, "labelsTr", tr['label'].split("/")[-1]))
         lists.append(cur_pat)
     return lists, {int(i): d['modality'][str(i)] for i in d['modality'].keys()}
 
@@ -130,8 +135,15 @@ def crop(task_string, override=False, num_threads=default_num_threads):
     splitted_4d_output_dir_task = join(nnUNet_raw_data, task_string)
     lists, _ = create_lists_from_splitted_dataset(splitted_4d_output_dir_task)
 
+    json_file = join(splitted_4d_output_dir_task, "dataset.json")
+    with open(json_file) as jsn:
+        d = json.load(jsn)
+    n_tasks = 1
+    if 'n_tasks' in d and d['n_tasks'] > 1:
+        n_tasks = d['n_tasks']
+
     imgcrop = ImageCropper(num_threads, cropped_out_dir)
-    imgcrop.run_cropping(lists, overwrite_existing=override)
+    imgcrop.run_cropping(lists, overwrite_existing=override, n_tasks=n_tasks)
     shutil.copy(join(nnUNet_raw_data, task_string, "dataset.json"), cropped_out_dir)
 
 

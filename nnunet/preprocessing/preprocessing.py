@@ -214,10 +214,10 @@ class GenericPreprocessor(object):
         self.resample_separate_z_anisotropy_threshold = RESAMPLING_SEPARATE_Z_ANISO_THRESHOLD
 
     @staticmethod
-    def load_cropped(cropped_output_dir, case_identifier):
+    def load_cropped(cropped_output_dir, case_identifier, n_tasks=1):
         all_data = np.load(os.path.join(cropped_output_dir, "%s.npz" % case_identifier))['data']
-        data = all_data[:-1].astype(np.float32)
-        seg = all_data[-1:]
+        data = all_data[:-n_tasks].astype(np.float32)
+        seg = all_data[-n_tasks:]
         with open(os.path.join(cropped_output_dir, "%s.pkl" % case_identifier), 'rb') as f:
             properties = pickle.load(f)
         return data, seg, properties
@@ -318,9 +318,9 @@ class GenericPreprocessor(object):
         return data.astype(np.float32), seg, properties
 
     def _run_internal(self, target_spacing, case_identifier, output_folder_stage, cropped_output_dir, force_separate_z,
-                      all_classes):
+                      all_classes, n_tasks=1):
         print("Running: ", case_identifier)
-        data, seg, properties = self.load_cropped(cropped_output_dir, case_identifier)
+        data, seg, properties = self.load_cropped(cropped_output_dir, case_identifier, n_tasks)
 
         data = data.transpose((0, *[i + 1 for i in self.transpose_forward]))
         seg = seg.transpose((0, *[i + 1 for i in self.transpose_forward]))
@@ -338,7 +338,7 @@ class GenericPreprocessor(object):
         rndst = np.random.RandomState(1234)
         class_locs = {}
         for c in all_classes:
-            all_locs = np.argwhere(all_data[-1] == c)
+            all_locs = np.argwhere(all_data[-n_tasks] == c)
             if len(all_locs) == 0:
                 class_locs[c] = []
                 continue
@@ -357,7 +357,7 @@ class GenericPreprocessor(object):
             pickle.dump(properties, f)
 
     def run(self, target_spacings, input_folder_with_cropped_npz, output_folder, data_identifier,
-            num_threads=default_num_threads, force_separate_z=None):
+            num_threads=default_num_threads, force_separate_z=None, n_tasks=1):
         """
 
         :param target_spacings: list of lists [[1.25, 1.25, 5]]
@@ -390,7 +390,7 @@ class GenericPreprocessor(object):
             for j, case in enumerate(list_of_cropped_npz_files):
                 case_identifier = get_case_identifier_from_npz(case)
                 if not os.path.isfile(os.path.join(output_folder_stage, "%s.npz" % case_identifier)) or not os.path.isfile(os.path.join(output_folder_stage, "%s.pkl" % case_identifier)):
-                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
+                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes, n_tasks
                     all_args.append(args)
             p = Pool(num_threads[i])
             p.starmap(self._run_internal, all_args)
