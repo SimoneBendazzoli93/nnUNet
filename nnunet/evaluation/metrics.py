@@ -13,7 +13,7 @@
 #    limitations under the License.
 
 import numpy as np
-from medpy import metric
+from medpy.metric.binary import __surface_distances as surface_distances
 
 
 def assert_shape(test, reference):
@@ -31,6 +31,9 @@ class ConfusionMatrix:
         self.tn = None
         self.fn = None
         self.size = None
+        self.hd1 = None
+        self.hd2 = None
+        self.spacing = None
         self.reference_empty = None
         self.reference_full = None
         self.test_empty = None
@@ -48,6 +51,9 @@ class ConfusionMatrix:
         self.reference = reference
         self.reset()
 
+    def set_spacing(self, spacing):
+        self.spacing = spacing
+
     def reset(self):
 
         self.tp = None
@@ -59,6 +65,9 @@ class ConfusionMatrix:
         self.test_full = None
         self.reference_empty = None
         self.reference_full = None
+        self.hd1 = None
+        self.hd2 = None
+        self.spacing = None
 
     def compute(self):
 
@@ -86,6 +95,15 @@ class ConfusionMatrix:
 
         return self.tp, self.fp, self.tn, self.fn
 
+    def get_distance_metrics(self):
+
+        for entry in (self.hd1, self.hd2):
+            if entry is None:
+                self.compute_surface_distance()
+                break
+
+        return self.hd1, self.hd2
+
     def get_size(self):
 
         if self.size is None:
@@ -101,6 +119,9 @@ class ConfusionMatrix:
 
         return self.test_empty, self.test_full, self.reference_empty, self.reference_full
 
+    def compute_surface_distance(self):
+        self.hd1 = surface_distances(self.test, self.reference, self.spacing)
+        self.hd2 = surface_distances(self.reference, self.test, self.spacing)
 
 def dice(test=None, reference=None, confusion_matrix=None, nan_for_nonexisting=True, **kwargs):
     """2TP / (2TP + FP + FN)"""
@@ -312,7 +333,6 @@ def total_negatives_reference(test=None, reference=None, confusion_matrix=None, 
 
 
 def hausdorff_distance(test=None, reference=None, confusion_matrix=None, nan_for_nonexisting=True, voxel_spacing=None, connectivity=1, **kwargs):
-
     if confusion_matrix is None:
         confusion_matrix = ConfusionMatrix(test, reference)
 
@@ -326,7 +346,9 @@ def hausdorff_distance(test=None, reference=None, confusion_matrix=None, nan_for
 
     test, reference = confusion_matrix.test, confusion_matrix.reference
 
-    return metric.hd(test, reference, voxel_spacing, connectivity)
+    hd1, hd2 = confusion_matrix.get_distance_metrics()
+
+    return max(hd1.max(), hd2.max())
 
 
 def hausdorff_distance_95(test=None, reference=None, confusion_matrix=None, nan_for_nonexisting=True, voxel_spacing=None, connectivity=1, **kwargs):
@@ -344,7 +366,9 @@ def hausdorff_distance_95(test=None, reference=None, confusion_matrix=None, nan_
 
     test, reference = confusion_matrix.test, confusion_matrix.reference
 
-    return metric.hd95(test, reference, voxel_spacing, connectivity)
+    hd1, hd2 = confusion_matrix.get_distance_metrics()
+
+    return np.percentile(np.hstack((hd1, hd2)), 95)
 
 
 def avg_surface_distance(test=None, reference=None, confusion_matrix=None, nan_for_nonexisting=True, voxel_spacing=None, connectivity=1, **kwargs):
@@ -362,7 +386,9 @@ def avg_surface_distance(test=None, reference=None, confusion_matrix=None, nan_f
 
     test, reference = confusion_matrix.test, confusion_matrix.reference
 
-    return metric.asd(test, reference, voxel_spacing, connectivity)
+    hd1, hd2 = confusion_matrix.get_distance_metrics()
+
+    return hd1.mean()
 
 
 def avg_surface_distance_symmetric(test=None, reference=None, confusion_matrix=None, nan_for_nonexisting=True, voxel_spacing=None, connectivity=1, **kwargs):
@@ -380,7 +406,9 @@ def avg_surface_distance_symmetric(test=None, reference=None, confusion_matrix=N
 
     test, reference = confusion_matrix.test, confusion_matrix.reference
 
-    return metric.assd(test, reference, voxel_spacing, connectivity)
+    hd1, hd2 = confusion_matrix.get_distance_metrics()
+
+    return np.mean((hd1.mean(), hd2.mean()))
 
 
 ALL_METRICS = {
