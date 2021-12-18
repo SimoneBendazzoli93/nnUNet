@@ -145,7 +145,7 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
                              dice_threshold=0, debug=False,
                              advanced_postprocessing=False,
                              pp_filename="postprocessing.json",
-                             assign_disconnected=False):
+                             assign_disconnected=False, is_multitasking = False):
     """
     :param base:
     :param gt_labels_folder: subfolder of base with niftis of ground truth labels
@@ -193,6 +193,7 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
     pp_results['for_which_classes'] = []
     pp_results['min_valid_object_sizes'] = {}
     pp_results['assign_disconnected'] = assign_disconnected
+    pp_results['is_multitasking'] = is_multitasking
 
     validation_result_raw = load_json(join(base, raw_subfolder_name, "summary.json"))['results']
     pp_results['num_samples'] = len(validation_result_raw['all'])
@@ -243,8 +244,10 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
         output_file = join(folder_all_classes_as_fg, f)
         results.append(
             p.starmap_async(load_remove_save, ((predicted_segmentation, output_file, (classes,), min_size_kept),)))
-        pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
-
+        if is_multitasking:
+            pred_gt_tuples.append([output_file, join(gt_labels_folder, f[:-7]+'_0000.nii.gz')])
+        else:
+            pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
     _ = [i.get() for i in tqdm(results, desc="Predictions PP Bg vs Fg")]
 
     # evaluate postprocessed predictions
@@ -341,8 +344,10 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
             output_file = join(folder_per_class, f)
             if not isfile(output_file):
                 results.append(p.starmap_async(load_remove_save, ((predicted_segmentation, output_file, classes, min_size_kept, assign_disconnected),)))
-            pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
-
+            if is_multitasking:
+                pred_gt_tuples.append([output_file, join(gt_labels_folder, f[:-7] + '_0000.nii.gz')])
+            else:
+                pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
         _ = [i.get() for i in tqdm(results, desc="Predictions PP All Classes")]
 
         # evaluate postprocessed predictions
@@ -401,9 +406,11 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
             (predicted_segmentation, output_file, pp_results['for_which_classes'],
              pp_results['min_valid_object_sizes'], assign_disconnected),)))
 
-        pred_gt_tuples.append([output_file,
-                               join(gt_labels_folder, f)])
 
+        if is_multitasking:
+            pred_gt_tuples.append([output_file, join(gt_labels_folder, f[:-7]+'_0000.nii.gz')])
+        else:
+            pred_gt_tuples.append([output_file, join(gt_labels_folder, f)])
     _ = [i.get() for i in tqdm(results, desc="Predictions PP")]
     # evaluate postprocessed predictions
     if not isfile(join(base, final_subf_name, "summary.json")):
