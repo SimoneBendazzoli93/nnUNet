@@ -130,6 +130,7 @@ class nnUNetTrainer(NetworkTrainer):
 
         self.conv_per_stage = None
         self.regions_class_order = None
+        self.n_tasks = 1
 
     def update_fold(self, fold):
         """
@@ -397,14 +398,16 @@ class nnUNetTrainer(NetworkTrainer):
     def get_basic_generators(self):
         self.load_dataset()
         self.do_split()
-
+        self.n_tasks = len(self.dataset[next(iter(self.dataset))]['properties']["seg_file"])
         if self.threeD:
             dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size, self.patch_size, self.batch_size,
                                  False, oversample_foreground_percent=self.oversample_foreground_percent,
-                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+                                 pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r',
+                                 n_tasks=self.n_tasks)
             dl_val = DataLoader3D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size, False,
                                   oversample_foreground_percent=self.oversample_foreground_percent,
-                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r')
+                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r',
+                                  n_tasks=self.n_tasks)
         else:
             dl_tr = DataLoader2D(self.dataset_tr, self.basic_generator_patch_size, self.patch_size, self.batch_size,
                                  oversample_foreground_percent=self.oversample_foreground_percent,
@@ -485,7 +488,8 @@ class nnUNetTrainer(NetworkTrainer):
                                                          use_sliding_window: bool = True, step_size: float = 0.5,
                                                          use_gaussian: bool = True, pad_border_mode: str = 'constant',
                                                          pad_kwargs: dict = None, all_in_gpu: bool = False,
-                                                         verbose: bool = True, mixed_precision: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                                                         verbose: bool = True, mixed_precision: bool = True) -> Tuple[
+        np.ndarray, np.ndarray]:
         """
         :param data:
         :param do_mirroring:
@@ -590,9 +594,8 @@ class nnUNetTrainer(NetworkTrainer):
                 data = np.load(self.dataset[k]['data_file'])['data']
 
                 print(k, data.shape)
-                data[-1][data[-1] == -1] = 0
-
-                softmax_pred = self.predict_preprocessed_data_return_seg_and_softmax(data[:-1],
+                data[-self.n_tasks:][data[-self.n_tasks:] == -1] = 0
+                softmax_pred = self.predict_preprocessed_data_return_seg_and_softmax(data[:-self.n_tasks],
                                                                                      do_mirroring=do_mirroring,
                                                                                      mirror_axes=mirror_axes,
                                                                                      use_sliding_window=use_sliding_window,
@@ -629,8 +632,13 @@ class nnUNetTrainer(NetworkTrainer):
                                                          )
                                )
 
-            pred_gt_tuples.append([join(output_folder, fname + ".nii.gz"),
-                                   join(self.gt_niftis_folder, fname + ".nii.gz")])
+            if self.n_tasks > 1:
+                pred_gt_tuples.append([join(output_folder, fname + ".nii.gz"),
+                                       join(self.gt_niftis_folder, fname + "_0000.nii.gz")])
+            else:
+                pred_gt_tuples.append([join(output_folder, fname + ".nii.gz"),
+                                       join(self.gt_niftis_folder, fname + ".nii.gz")])
+
 
         _ = [i.get() for i in results]
         self.print_to_log_file("finished prediction")
@@ -642,10 +650,10 @@ class nnUNetTrainer(NetworkTrainer):
 
         if not isfile(join(output_folder, "summary.json")):
             _ = aggregate_scores(pred_gt_tuples, labels=list(range(self.num_classes)),
-                             json_output_file=join(output_folder, "summary.json"),
-                             json_name=job_name + " val tiled %s" % (str(use_sliding_window)),
-                             json_author="Fabian",
-                             json_task=task, num_threads=default_num_threads)
+                                 json_output_file=join(output_folder, "summary.json"),
+                                 json_name=job_name + " val tiled %s" % (str(use_sliding_window)),
+                                 json_author="Fabian",
+                                 json_task=task, num_threads=default_num_threads)
 
         if run_postprocessing_on_folds:
             # in the old nnunet we would stop here. Now we add a postprocessing. This postprocessing can remove everything
@@ -654,7 +662,8 @@ class nnUNetTrainer(NetworkTrainer):
             # have this applied during inference as well
             self.print_to_log_file("determining postprocessing")
             determine_postprocessing(self.output_folder, self.gt_niftis_folder, validation_folder_name,
-                                     final_subf_name=validation_folder_name + "_postprocessed", debug=debug)
+                                     final_subf_name=validation_folder_name + "_postprocessed", debug=debug,
+                                     assign_disconnected=True, is_multitasking=(self.n_tasks > 1))
             # after this the final predictions for the vlaidation set can be found in validation_folder_name_base + "_postprocessed"
             # They are always in that folder, even if no postprocessing as applied!
 
