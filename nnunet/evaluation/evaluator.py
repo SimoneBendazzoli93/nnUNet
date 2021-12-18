@@ -200,6 +200,7 @@ class Evaluator:
                 if not hasattr(label, "__iter__"):
                     self.confusion_matrix.set_test(self.test == label)
                     self.confusion_matrix.set_reference(self.reference == label)
+                    self.confusion_matrix.set_spacing(metric_kwargs["voxel_spacing"])
                 else:
                     current_test = 0
                     current_reference = 0
@@ -208,6 +209,7 @@ class Evaluator:
                         current_reference += (self.reference == l)
                     self.confusion_matrix.set_test(current_test)
                     self.confusion_matrix.set_reference(current_reference)
+                    self.confusion_matrix.set_spacing(metric_kwargs["voxel_spacing"])
                 for metric in eval_metrics:
                     self.result[k][metric] = _funcs[metric](confusion_matrix=self.confusion_matrix,
                                                                nan_for_nonexisting=self.nan_for_nonexisting,
@@ -220,6 +222,7 @@ class Evaluator:
                 self.result[k] = OrderedDict()
                 self.confusion_matrix.set_test(self.test == l)
                 self.confusion_matrix.set_reference(self.reference == l)
+                self.confusion_matrix.set_spacing(metric_kwargs["voxel_spacing"])
                 for metric in eval_metrics:
                     self.result[k][metric] = _funcs[metric](confusion_matrix=self.confusion_matrix,
                                                             nan_for_nonexisting=self.nan_for_nonexisting,
