@@ -31,6 +31,8 @@ def load_remove_save(input_file: str, output_file: str, for_which_classes: list,
                      minimum_valid_object_size: dict = None, assign_disconnected=False):
     # Only objects larger than minimum_valid_object_size will be removed. Keys in minimum_valid_object_size must
     # match entries in for_which_classes
+    if isfile(output_file):
+        return
     img_in = sitk.ReadImage(input_file)
     img_npy = sitk.GetArrayFromImage(img_in)
     volume_per_voxel = float(np.prod(img_in.GetSpacing(), dtype=np.float64))
@@ -136,7 +138,11 @@ def load_postprocessing(json_file):
         min_valid_object_sizes = ast.literal_eval(a['min_valid_object_sizes'])
     else:
         min_valid_object_sizes = None
-    return a['for_which_classes'], min_valid_object_sizes
+    if 'assign_disconnected' in a.keys():
+        assign_diconnected = a['assign_disconnected']
+    else:
+        assign_disconnected = False
+    return a['for_which_classes'], min_valid_object_sizes, assign_diconnected
 
 
 def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validation_raw",
