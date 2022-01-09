@@ -382,7 +382,7 @@ class GenericPreprocessor(object):
         # located. This is needed for oversampling foreground
         all_classes = load_pickle(join(input_folder_with_cropped_npz, 'dataset_properties.pkl'))['all_classes']
 
-        for i in range(num_stages):
+        for i in range(1,num_stages):
             all_args = []
             output_folder_stage = os.path.join(output_folder, data_identifier + "_stage%d" % i)
             maybe_mkdir_p(output_folder_stage)
