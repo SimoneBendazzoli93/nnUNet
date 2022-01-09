@@ -363,11 +363,18 @@ class DataLoader3D(SlimDataLoaderBase):
                              self.pad_mode, **self.pad_kwargs_data)
 
             for task in range(self.n_tasks):
-                seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):-(self.n_tasks-task)+1], ((0, 0),
-                                                    (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                    (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
-                                                    (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
-                               'constant', **{'constant_values': -1})
+                if task == self.n_tasks-1:
+                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):], ((0, 0),
+                                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
+                                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
+                                   'constant', **{'constant_values': -1})
+                else:
+                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):-(self.n_tasks-task)+1], ((0, 0),
+                                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
+                                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
+                                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
+                                   'constant', **{'constant_values': -1})
             if seg_from_previous_stage is not None:
                 seg[j, 1] = np.pad(seg_from_previous_stage, ((0, 0),
                                                              (-min(0, bbox_x_lb),
