@@ -12,7 +12,7 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-
+from tqdm import tqdm
 import numpy as np
 from batchgenerators.augmentations.utils import pad_nd_image
 from nnunet.utilities.random_stuff import no_op
@@ -370,27 +370,29 @@ class SegmentationNetwork(NeuralNetwork):
             aggregated_results = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
             aggregated_nb_of_predictions = np.zeros([self.num_classes] + list(data.shape[1:]), dtype=np.float32)
 
-        for x in steps[0]:
-            lb_x = x
-            ub_x = x + patch_size[0]
-            for y in steps[1]:
-                lb_y = y
-                ub_y = y + patch_size[1]
-                for z in steps[2]:
-                    lb_z = z
-                    ub_z = z + patch_size[2]
+        with tqdm(total=num_tiles) as pbar:
+            for x in steps[0]:
+                lb_x = x
+                ub_x = x + patch_size[0]
+                for y in steps[1]:
+                    lb_y = y
+                    ub_y = y + patch_size[1]
+                    for z in steps[2]:
+                        lb_z = z
+                        ub_z = z + patch_size[2]
 
-                    predicted_patch = self._internal_maybe_mirror_and_pred_3D(
-                        data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
-                        gaussian_importance_map)[0]
+                        predicted_patch = self._internal_maybe_mirror_and_pred_3D(
+                            data[None, :, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z], mirror_axes, do_mirroring,
+                            gaussian_importance_map)[0]
 
-                    if all_in_gpu:
-                        predicted_patch = predicted_patch.half()
-                    else:
-                        predicted_patch = predicted_patch.cpu().numpy()
+                        if all_in_gpu:
+                            predicted_patch = predicted_patch.half()
+                        else:
+                            predicted_patch = predicted_patch.cpu().numpy()
 
-                    aggregated_results[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += predicted_patch
-                    aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += add_for_nb_of_preds
+                        aggregated_results[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += predicted_patch
+                        aggregated_nb_of_predictions[:, lb_x:ub_x, lb_y:ub_y, lb_z:ub_z] += add_for_nb_of_preds
+                        pbar.update(1)
 
         # we reverse the padding here (remeber that we padded the input to be at least as large as the patch size
         slicer = tuple(
