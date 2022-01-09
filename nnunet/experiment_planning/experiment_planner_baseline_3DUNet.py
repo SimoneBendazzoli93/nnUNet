@@ -442,7 +442,7 @@ class ExperimentPlanner(object):
 
         n_tasks = self.dataset_properties['n_tasks']
         preprocessor.run(target_spacings, self.folder_with_cropped_data, self.preprocessed_output_folder,
-                         self.plans['data_identifier'], num_threads, n_tasks)
+                         self.plans['data_identifier'], num_threads, n_tasks=n_tasks)
 
 
 if __name__ == "__main__":
