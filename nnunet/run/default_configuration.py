@@ -33,7 +33,7 @@ def get_configuration_from_output_folder(folder):
 
 def get_default_configuration(network, task, network_trainer, plans_identifier=default_plans_identifier,
                               search_in=(nnunet.__path__[0], "training", "network_training"),
-                              base_module='nnunet.training.network_training', step=None):
+                              base_module='nnunet.training.network_training', sub_training_name=None):
     assert network in ['2d', '3d_lowres', '3d_fullres', '3d_cascade_fullres'], \
         "network can only be one of the following: \'3d_lowres\', \'3d_fullres\', \'3d_cascade_fullres\'"
 
@@ -59,10 +59,10 @@ def get_default_configuration(network, task, network_trainer, plans_identifier=d
     trainer_class = recursive_find_python_class([join(*search_in)], network_trainer,
                                                 current_module=base_module)
 
-    if step is None:
+    if sub_training_name is None:
         output_folder_name = join(network_training_output_dir, network, task, network_trainer + "__" + plans_identifier)
     else:
-        output_folder_name = join(network_training_output_dir, step, task, network_trainer + "__" + plans_identifier)
+        output_folder_name = join(network_training_output_dir, sub_training_name, task, network_trainer + "__" + plans_identifier)
     print("###############################################")
     print("I am running the following nnUNet: %s" % network)
     print("My trainer class is: ", trainer_class)
