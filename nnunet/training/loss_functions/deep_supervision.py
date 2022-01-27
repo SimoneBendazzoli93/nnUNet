@@ -14,7 +14,7 @@
 
 
 from torch import nn
-
+import math
 
 class MultipleOutputLoss2(nn.Module):
     def __init__(self, loss, weight_factors=None):
@@ -70,7 +70,7 @@ class MultiTaskingMultipleOutputLoss2(nn.Module):
             task = 0
             if i>=5:
                 j = i%5
-                task = 1
+                task = math.floor(i/5)
             if weights[i] != 0:
                 l += weights[i] * self.loss(x[i], y[j][:,task:task+1,:])
 
