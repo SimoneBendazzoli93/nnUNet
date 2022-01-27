@@ -584,7 +584,7 @@ class PreprocessorFor2D(GenericPreprocessor):
                                                 transpose_forward, intensityproperties)
 
     def run(self, target_spacings, input_folder_with_cropped_npz, output_folder, data_identifier,
-            num_threads=default_num_threads, force_separate_z=None):
+            num_threads=default_num_threads, force_separate_z=None,n_tasks=1):
         print("Initializing to run preprocessing")
         print("npz folder:", input_folder_with_cropped_npz)
         print("output_folder:", output_folder)
@@ -607,7 +607,7 @@ class PreprocessorFor2D(GenericPreprocessor):
                 if not os.path.isfile(
                         os.path.join(output_folder_stage, "%s.npz" % case_identifier)) or not os.path.isfile(
                         os.path.join(output_folder_stage, "%s.pkl" % case_identifier)):
-                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes
+                    args = spacing, case_identifier, output_folder_stage, input_folder_with_cropped_npz, force_separate_z, all_classes, n_tasks
                     all_args.append(args)
         p = Pool(num_threads)
         p.starmap(self._run_internal, all_args)
