@@ -124,15 +124,21 @@ def get_caseIDs_from_splitted_dataset_folder(folder):
     return files
 
 
-def crop(task_string, override=False, num_threads=default_num_threads):
-    cropped_out_dir = join(nnUNet_cropped_data, task_string)
+def crop(task_string, override=False, num_threads=default_num_threads,subfolder=None):
+    if subfolder is None:
+        cropped_out_dir = join(nnUNet_cropped_data, task_string)
+    else:
+        cropped_out_dir = join(nnUNet_cropped_data, task_string, subfolder)
     maybe_mkdir_p(cropped_out_dir)
 
     if override and isdir(cropped_out_dir):
         shutil.rmtree(cropped_out_dir)
         maybe_mkdir_p(cropped_out_dir)
 
-    splitted_4d_output_dir_task = join(nnUNet_raw_data, task_string)
+    if subfolder is None:
+        splitted_4d_output_dir_task = join(nnUNet_raw_data, task_string)
+    else:
+        splitted_4d_output_dir_task = join(nnUNet_raw_data, task_string, subfolder)
     lists, _ = create_lists_from_splitted_dataset(splitted_4d_output_dir_task)
 
     json_file = join(splitted_4d_output_dir_task, "dataset.json")
@@ -144,8 +150,10 @@ def crop(task_string, override=False, num_threads=default_num_threads):
 
     imgcrop = ImageCropper(num_threads, cropped_out_dir)
     imgcrop.run_cropping(lists, overwrite_existing=override, n_tasks=n_tasks)
-    shutil.copy(join(nnUNet_raw_data, task_string, "dataset.json"), cropped_out_dir)
-
+    if subfolder is None:
+        shutil.copy(join(nnUNet_raw_data, task_string, "dataset.json"), cropped_out_dir)
+    else:
+        shutil.copy(join(nnUNet_raw_data, task_string,subfolder, "dataset.json"), cropped_out_dir)
 
 def analyze_dataset(task_string, override=False, collect_intensityproperties=True, num_processes=default_num_threads):
     cropped_out_dir = join(nnUNet_cropped_data, task_string)
