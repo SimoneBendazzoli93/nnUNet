@@ -438,7 +438,7 @@ def determine_postprocessing(base, gt_labels_folder, raw_subfolder_name="validat
 
 
 def apply_postprocessing_to_folder(input_folder: str, output_folder: str, for_which_classes: list,
-                                   min_valid_object_size:dict=None, num_processes=8):
+                                   min_valid_object_size:dict=None, num_processes=8, assign_disconnected=False):
     """
     applies removing of all but the largest connected component to all niftis in a folder
     :param min_valid_object_size:
@@ -452,10 +452,15 @@ def apply_postprocessing_to_folder(input_folder: str, output_folder: str, for_wh
     maybe_mkdir_p(output_folder)
     p = Pool(num_processes)
     nii_files = subfiles(input_folder, suffix=".nii.gz", join=False)
-    input_files = [join(input_folder, i) for i in nii_files]
-    out_files = [join(output_folder, i) for i in nii_files]
+    input_files = []
+    out_files = []
+    for i in nii_files:
+        if not isfile(join(output_folder, i[:-11]+".nii.gz")):
+            input_files.append(join(input_folder, i))
+            out_files.append(join(output_folder, i[:-11]+".nii.gz"))
+
     results = p.starmap_async(load_remove_save, zip(input_files, out_files, [for_which_classes] * len(input_files),
-                                                    [min_valid_object_size] * len(input_files)))
+                                                    [min_valid_object_size] * len(input_files),[assign_disconnected] * len(input_files)))
     res = results.get()
     p.close()
     p.join()
