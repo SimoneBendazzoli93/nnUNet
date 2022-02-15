@@ -73,6 +73,8 @@ def main():
                              "IDENTIFIER, the correct training command would be:\n"
                              "'nnUNet_train CONFIG TRAINER TASKID FOLD -p nnUNetPlans_pretrained_IDENTIFIER "
                              "-pretrained_weights FILENAME'")
+    parser.add_argument("--sub-step", help="Optional value to indicate which cascade step to run.",
+                        default=None, required=False)
 
     args = parser.parse_args()
     task_ids = args.task_ids
@@ -96,6 +98,7 @@ def main():
 
     # we need raw data
     tasks = []
+    subfolder = args.sub_step
     for i in task_ids:
         i = int(i)
 
@@ -104,8 +107,10 @@ def main():
         if args.verify_dataset_integrity:
             verify_dataset_integrity(join(nnUNet_raw_data, task_name))
 
-        crop(task_name, False, tf)
-
+        if subfolder is None:
+            crop(task_name, False, tf)
+        else:
+            crop(task_name, False, tf, subfolder)
         tasks.append(task_name)
 
     search_in = join(nnunet.__path__[0], "experiment_planning")
@@ -134,20 +139,33 @@ def main():
         #lists, modalities = create_lists_from_splitted_dataset(splitted_4d_output_dir_task)
 
         # we need to figure out if we need the intensity propoerties. We collect them only if one of the modalities is CT
-        dataset_json = load_json(join(cropped_out_dir, 'dataset.json'))
+        if subfolder is None:
+            dataset_json = load_json(join(cropped_out_dir, 'dataset.json'))
+        else:
+            dataset_json = load_json(join(cropped_out_dir,subfolder, 'dataset.json'))
         modalities = list(dataset_json["modality"].values())
         collect_intensityproperties = True if (("CT" in modalities) or ("ct" in modalities)) else False
-        dataset_analyzer = DatasetAnalyzer(cropped_out_dir, overwrite=False, num_processes=tf)  # this class creates the fingerprint
+        if subfolder is None:
+            dataset_analyzer = DatasetAnalyzer(cropped_out_dir, overwrite=False, num_processes=tf)
+        else:
+            dataset_analyzer = DatasetAnalyzer(join(cropped_out_dir, subfolder), overwrite=False, num_processes=tf)  # this class creates the fingerprint
         _ = dataset_analyzer.analyze_dataset(collect_intensityproperties)  # this will write output files that will be used by the ExperimentPlanner
 
 
         maybe_mkdir_p(preprocessing_output_dir_this_task)
-        shutil.copy(join(cropped_out_dir, "dataset_properties.pkl"), preprocessing_output_dir_this_task)
-        shutil.copy(join(nnUNet_raw_data, t, "dataset.json"), preprocessing_output_dir_this_task)
+        if subfolder is None:
+            shutil.copy(join(cropped_out_dir, "dataset_properties.pkl"), preprocessing_output_dir_this_task)
+            shutil.copy(join(nnUNet_raw_data, t, "dataset.json"), preprocessing_output_dir_this_task)
+        else:
+            shutil.copy(join(cropped_out_dir,subfolder, "dataset_properties.pkl"), preprocessing_output_dir_this_task)
+            shutil.copy(join(nnUNet_raw_data, t,subfolder, "dataset.json"), preprocessing_output_dir_this_task)
 
         threads = (tl, tf)
 
         print("number of threads: ", threads, "\n")
+
+        if subfolder is not None:
+            cropped_out_dir = join(cropped_out_dir,subfolder)
 
         if planner_3d is not None:
             if args.overwrite_plans is not None:
