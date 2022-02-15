@@ -78,9 +78,10 @@ def merge(folders, output_folder, threads, override=True, postprocessing_file=No
     property_files = []
     out_files = []
     for p in patient_ids:
-        files.append([join(f, p + ".npz") for f in folders])
-        property_files.append([join(f, p + ".pkl") for f in folders])
-        out_files.append(join(output_folder, p + ".nii.gz"))
+        if not isfile(join(output_folder, p + ".nii.gz")):
+            files.append([join(f, p + ".npz") for f in folders])
+            property_files.append([join(f, p + ".pkl") for f in folders])
+            out_files.append(join(output_folder, p + ".nii.gz"))
 
     p = Pool(threads)
     p.starmap(merge_files, zip(files, property_files, out_files, [override] * len(out_files), [store_npz] * len(out_files)))
@@ -88,10 +89,10 @@ def merge(folders, output_folder, threads, override=True, postprocessing_file=No
     p.join()
 
     if postprocessing_file is not None:
-        for_which_classes, min_valid_obj_size = load_postprocessing(postprocessing_file)
+        for_which_classes, min_valid_obj_size, assign_disconnected = load_postprocessing(postprocessing_file)
         print('Postprocessing...')
         apply_postprocessing_to_folder(output_folder, output_folder_orig,
-                                       for_which_classes, min_valid_obj_size, threads)
+                                       for_which_classes, min_valid_obj_size, 4, assign_disconnected)
         shutil.copy(postprocessing_file, output_folder_orig)
 
 
