@@ -121,6 +121,8 @@ def main():
                         help='Predictions are done with mixed precision by default. This improves speed and reduces '
                              'the required vram. If you want to disable mixed precision you can set this flag. Note '
                              'that yhis is not recommended (mixed precision is ~2x faster!)')
+    parser.add_argument("--sub-step", help="Optional value to indicate which cascade step to run.",
+                        default=None, required=False)
 
     args = parser.parse_args()
     input_folder = args.input_folder
@@ -143,6 +145,7 @@ def main():
     model = args.model
     trainer_class_name = args.trainer_class_name
     cascade_trainer_class_name = args.cascade_trainer_class_name
+    sub_training_name = args.sub_step
 
     task_name = args.task_name
 
@@ -150,8 +153,8 @@ def main():
         task_id = int(task_name)
         task_name = convert_id_to_task_name(task_id)
 
-    assert model in ["2d", "3d_lowres", "3d_fullres", "3d_cascade_fullres"], "-m must be 2d, 3d_lowres, 3d_fullres or " \
-                                                                             "3d_cascade_fullres"
+    #assert model in ["2d", "3d_lowres", "3d_fullres", "3d_cascade_fullres"], "-m must be 2d, 3d_lowres, 3d_fullres or " \
+    #                                                                         "3d_cascade_fullres"
 
     # if force_separate_z == "None":
     #     force_separate_z = None
@@ -218,7 +221,7 @@ def main():
                         num_threads_nifti_save, lowres_segmentations, part_id, num_parts, not disable_tta,
                         overwrite_existing=overwrite_existing, mode=mode, overwrite_all_in_gpu=all_in_gpu,
                         mixed_precision=not args.disable_mixed_precision,
-                        step_size=step_size, checkpoint_name=args.chk)
+                        step_size=step_size, checkpoint_name=args.chk,sub_training_name=sub_training_name)
 
 
 if __name__ == "__main__":
