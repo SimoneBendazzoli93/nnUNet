@@ -813,7 +813,7 @@ class SegmentationNetwork(NeuralNetwork):
         predicted_segmentation = []
         softmax_pred = []
 
-        for s in range(x.shape[1]):
+        for s in tqdm(range(x.shape[1])):
             pred_seg, softmax_pres = self._internal_predict_2D_2Dconv_tiled(
                 x[:, s], step_size, do_mirroring, mirror_axes, patch_size, regions_class_order, use_gaussian,
                 pad_border_mode, pad_kwargs, all_in_gpu, verbose)
