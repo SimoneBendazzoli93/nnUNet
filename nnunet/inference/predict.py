@@ -271,7 +271,7 @@ def predict_cases(model, list_of_lists, output_filenames, folds, save_npz, num_t
     # first load the postprocessing properties if they are present. Else raise a well visible warning
     if not disable_postprocessing:
         results = []
-        pp_output_filenames = [output_filename[:-7]+"_post.nii.gz" for output_filename in output_filenames]
+        pp_output_filenames = [output_filename[:-(7+len("_raw"))]+".nii.gz" for output_filename in output_filenames]  # TODO: FIx
         pp_file = join(model, "postprocessing.json")
         if isfile(pp_file):
             print("postprocessing...")
@@ -608,7 +608,7 @@ def predict_from_folder(model: str, input_folder: str, output_folder: str, folds
                         part_id: int, num_parts: int, tta: bool, mixed_precision: bool = True,
                         overwrite_existing: bool = True, mode: str = 'normal', overwrite_all_in_gpu: bool = None,
                         step_size: float = 0.5, checkpoint_name: str = "model_final_checkpoint",
-                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False):
+                        segmentation_export_kwargs: dict = None, disable_postprocessing: bool = False, sub_training_name=None, output_suffix = '_raw.nii.gz', input_modality = 0, previous_stage_name = None):
     """
         here we use the standard naming scheme to generate list_of_lists and output_files needed by predict_cases
 
@@ -634,12 +634,23 @@ def predict_from_folder(model: str, input_folder: str, output_folder: str, folds
     expected_num_modalities = load_pickle(join(model, "plans.pkl"))['num_modalities']
 
     # check input folder integrity
-    case_ids = check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)
+    if previous_stage_name is None:
+        case_ids = check_input_folder_and_return_caseIDs(input_folder, expected_num_modalities)
 
-    output_files = [join(output_folder, i + ".nii.gz") for i in case_ids]
-    all_files = subfiles(input_folder, suffix=".nii.gz", join=False, sort=True)
-    list_of_lists = [[join(input_folder, i) for i in all_files if i[:len(j)].startswith(j) and
-                      len(i) == (len(j) + 12)] for j in case_ids]
+        output_files = [join(output_folder,i, i + output_suffix) for i in case_ids]  # TODO: FIx
+        all_files = subfiles(input_folder, suffix=".nii.gz", join=False, sort=True)
+        list_of_lists = [[join(input_folder, i) for i in all_files if i[:len(j)].startswith(j) and
+                          len(i) == (len(j) + 12)] for j in case_ids]
+    else:
+        files = subfiles(input_folder, suffix=".nii.gz", join=False, sort=True)
+        case_ids = np.unique([i[:-12] for i in files])
+        output_files = [join(output_folder,i, i + output_suffix) for i in case_ids]
+        all_files = subfiles(input_folder, suffix="_{0:04}.nii.gz".format(input_modality), join=False, sort=True)
+        list_of_lists = []
+        for j in case_ids:
+            for i in all_files:
+                if i[:len(j)].startswith(j) and len(i) == (len(j) + 12) and isfile(join(output_folder+"_"+previous_stage_name,j,j+".nii.gz")):  # TODO: FIx
+                    list_of_lists.append([join(input_folder, i),join(output_folder+"_"+previous_stage_name,j,j+".nii.gz")])
 
     if lowres_segmentations is not None:
         assert isdir(lowres_segmentations), "if lowres_segmentations is not None then it must point to a directory"
@@ -765,6 +776,10 @@ if __name__ == "__main__":
                         help='Predictions are done with mixed precision by default. This improves speed and reduces '
                              'the required vram. If you want to disable mixed precision you can set this flag. Note '
                              'that yhis is not recommended (mixed precision is ~2x faster!)')
+    parser.add_argument("--cascade-step", help="Optional value to indicate which cascade step to run.",
+                        default=None, required=False)
+    parser.add_argument("--previous-stage", help="Optional value to indicate previous stage name for cascade inference.",
+                        default=None, required=False)
 
     args = parser.parse_args()
     input_folder = args.input_folder
@@ -779,6 +794,8 @@ if __name__ == "__main__":
     num_threads_nifti_save = args.num_threads_nifti_save
     tta = args.tta
     step_size = args.step_size
+    cascade_step = args.cascade_step
+    previous_stage = args.previous_stage
 
     # interp_order = args.interp_order
     # interp_order_z = args.interp_order_z
@@ -835,4 +852,4 @@ if __name__ == "__main__":
     predict_from_folder(model, input_folder, output_folder, folds, save_npz, num_threads_preprocessing,
                         num_threads_nifti_save, lowres_segmentations, part_id, num_parts, tta,
                         mixed_precision=not args.disable_mixed_precision,
-                        overwrite_existing=overwrite, mode=mode, overwrite_all_in_gpu=all_in_gpu, step_size=step_size)
+                        overwrite_existing=overwrite, mode=mode, overwrite_all_in_gpu=all_in_gpu, step_size=step_size,sub_training_name =sub_training_name, previous_stage_name=previous_stage)
