@@ -24,6 +24,7 @@ from nnunet.postprocessing.connected_components import apply_postprocessing_to_f
 
 
 def merge_files(files, properties_files, out_file, override, store_npz):
+    print("Merging ",files)
     if override or not isfile(out_file):
         softmax = [np.load(f)['softmax'][None] for f in files]
         softmax = np.vstack(softmax)

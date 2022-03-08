@@ -14,6 +14,7 @@
 
 from collections import OrderedDict
 from pathlib import Path
+import nnunet
 from nnunet.evaluation.evaluator import aggregate_scores
 from nnunet.inference.segmentation_export import save_segmentation_nifti_from_softmax
 import numpy as np
@@ -33,7 +34,7 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
     """
 
     def __init__(self, plans_file, fold, output_folder=None, dataset_directory=None, batch_dice=True, stage=None,
-                 unpack_data=True, deterministic=True, fp16=False):
+                 unpack_data=True, deterministic=True, fp16=False, sub_training_name=None,training_2D=False):
         super().__init__(plans_file, fold, output_folder, dataset_directory, batch_dice, stage, unpack_data,
                          deterministic, fp16)
         self.summary_writer_tr_loss = None
@@ -42,6 +43,13 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
         self.save_every = 5
         self.save_prediction_every = 50
         self.config_dict = None
+        self.global_dc_per_class = []
+        self.summary_writer_dc_per_class = []
+        self.sub_training_name = sub_training_name
+        self.training_2D = training_2D
+        self.orientation = None
+        if self.training_2D:
+            self.max_num_epochs = 100
 
     def initialize(self, training=True, force_load_plans=False):
         """
@@ -57,12 +65,37 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
         super().initialize(training, force_load_plans)
 
         experiment_name = self.config_dict["Experiment Name"]
-        self.summary_writer_tr_loss = SummaryWriter(
-            log_dir=os.path.join(self.output_folder_base, 'runs', '{}_fold_{}'.format(experiment_name, self.fold)))
-        self.summary_writer_val_loss = SummaryWriter(
-            log_dir=os.path.join(self.output_folder_base, 'runs', '{}_fold_{}'.format(experiment_name, self.fold)))
-        self.summary_writer_eval_metrics = SummaryWriter(
-            log_dir=os.path.join(self.output_folder_base, 'runs', '{}_fold_{}'.format(experiment_name, self.fold)))
+        if self.sub_training_name != None:
+            self.summary_writer_tr_loss = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}_{}'.format(experiment_name, self.fold, self.sub_training_name)))
+            self.summary_writer_val_loss = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}_{}'.format(experiment_name, self.fold, self.sub_training_name)))
+            self.summary_writer_eval_metrics = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}_{}'.format(experiment_name, self.fold, self.sub_training_name)))
+            for _ in range(self.num_classes):
+                self.summary_writer_dc_per_class.append(SummaryWriter(
+                    log_dir=os.path.join(self.output_folder_base, 'runs',
+                                         '{}_fold_{}_{}'.format(experiment_name, self.fold, self.sub_training_name))))
+
+        else:
+            self.summary_writer_tr_loss = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}'.format(experiment_name, self.fold)))
+            self.summary_writer_val_loss = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}'.format(experiment_name, self.fold)))
+            self.summary_writer_eval_metrics = SummaryWriter(
+                log_dir=os.path.join(self.output_folder_base, 'runs',
+                                     '{}_fold_{}'.format(experiment_name, self.fold)))
+            for _ in range(self.num_classes):
+                self.summary_writer_dc_per_class.append(SummaryWriter(
+                    log_dir=os.path.join(self.output_folder_base, 'runs',
+                                         '{}_fold_{}'.format(experiment_name, self.fold))))
+
+
 
     def load_config_dict(self):
         json_file = subfiles(os.environ['RESULTS_FOLDER'], suffix='.json')[0]
@@ -76,11 +109,28 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
         self.summary_writer_val_loss.flush()
         self.summary_writer_eval_metrics.add_scalar("Evaluation Metric", self.all_val_eval_metrics[-1], self.epoch)
         self.summary_writer_eval_metrics.flush()
+        for idx, per_class_dice in enumerate(self.global_dc_per_class[-1]):
+            if self.sub_training_name != None:
+                if self.sub_training_name in self.config_dict:
+                    class_name = self.config_dict[self.sub_training_name]["label_dict"][str(idx+1)]
+                else:
+                    class_name = self.config_dict["label_dict"][str(idx + 1)]
+                self.summary_writer_dc_per_class[idx].add_scalar(" {} Evaluation Metric".format(class_name), per_class_dice, self.epoch)
+                self.summary_writer_tr_loss.flush()
+            elif isinstance(self.config_dict["label_dict"], list):
+                class_name = self.config_dict["label_dict"][0][str(idx+1)]
+                self.summary_writer_dc_per_class[idx].add_scalar(" {} Evaluation Metric".format(class_name), per_class_dice, self.epoch)
+                self.summary_writer_tr_loss.flush()
+            else:
+                class_name = self.config_dict["label_dict"][str(idx + 1)]
+                self.summary_writer_dc_per_class[idx].add_scalar(" {} Evaluation Metric".format(class_name),
+                                                                 per_class_dice, self.epoch)
+                self.summary_writer_tr_loss.flush()
 
     def run_inference_on_cases(self, do_mirroring: bool = True, use_sliding_window: bool = True,
                                step_size: float = 0.5, use_gaussian: bool = True,
                                all_in_gpu: bool = False,
-                               segmentation_export_kwargs: dict = None):
+                               segmentation_export_kwargs: dict = None):  # TODO: REVIEW
         splits_file = join(self.dataset_directory, "splits_final.pkl")
 
         if "3D_validation_idx" not in self.config_dict:
@@ -172,8 +222,8 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
 
         self.update_tensorboard_summary()
 
-        if self.epoch % self.save_prediction_every == (self.save_prediction_every - 1):
-            self.run_inference_on_cases()
+        # if self.epoch % self.save_prediction_every == (self.save_prediction_every - 1):
+        #    self.run_inference_on_cases()
 
         return continue_training
 
@@ -199,14 +249,33 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
                 self.print_to_log_file(
                     "Creating new {}-fold cross-validation split...".format(self.config_dict["n_folds"]))
                 splits = []
-                all_keys_sorted = np.sort(list(self.dataset.keys()))
-                kfold = KFold(n_splits=self.config_dict["n_folds"], shuffle=True, random_state=self.config_dict["Seed"])
+                keys = []
+                if self.training_2D:
+                    for dataset_key in self.dataset.keys():
+                        keys.append(dataset_key[:-5])
+                    all_keys_sorted = np.sort(np.unique(keys))
+                else:
+                    all_keys_sorted = np.sort(list(self.dataset.keys()))
+                kfold = KFold(n_splits=self.config_dict["n_folds"], shuffle=True,
+                              random_state=12345)  # self.config_dict["Seed"])
                 for i, (train_idx, test_idx) in enumerate(kfold.split(all_keys_sorted)):
                     train_keys = np.array(all_keys_sorted)[train_idx]
                     test_keys = np.array(all_keys_sorted)[test_idx]
                     splits.append(OrderedDict())
-                    splits[-1]['train'] = train_keys
-                    splits[-1]['val'] = test_keys
+                    if self.training_2D:
+                        train_2d_keys = []
+                        test_2d_keys = []
+                        for dataset_key in self.dataset.keys():
+                            if dataset_key[:-5] in train_keys:
+                                train_2d_keys.append(dataset_key)
+                            if dataset_key[:-5] in test_keys:
+                                test_2d_keys.append(dataset_key)
+                        splits[-1]['train'] = np.array(train_2d_keys)
+                        splits[-1]['val'] = np.array(test_2d_keys)
+                    else:
+                        splits[-1]['train'] = train_keys
+                        splits[-1]['val'] = test_keys
+                    print("Test fold-{}".format(i), test_keys)
                 save_pickle(splits, splits_file)
 
             else:
@@ -247,10 +316,12 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
                  step_size: float = 0.5, save_softmax: bool = True, use_gaussian: bool = True, overwrite: bool = True,
                  validation_folder_name: str = 'validation_raw', debug: bool = False, all_in_gpu: bool = False,
                  segmentation_export_kwargs: dict = None, run_postprocessing_on_folds: bool = True,
-                 run_cascade_validation=False):
+                 run_cascade_validation=False):  # TODO: REVIEW
         """
         We need to wrap this because we need to enforce self.network.do_ds = False for prediction
         """
+        if self.training_2D:
+            return
         ret = super().validate(do_mirroring=do_mirroring, use_sliding_window=use_sliding_window, step_size=step_size,
                                save_softmax=save_softmax, use_gaussian=use_gaussian,
                                overwrite=overwrite, validation_folder_name=validation_folder_name, debug=debug,
@@ -259,6 +330,7 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
         if run_cascade_validation:
             self.print_to_log_file("running cascade validation")
             folder_with_segs_from_prev_stage = Path(self.output_folder_base).parent.parent.parent.joinpath("step_0",
+                                                                                                           # TODO: Fix
                                                                                                            Path(
                                                                                                                self.output_folder_base).parent.name,
                                                                                                            Path(
@@ -276,7 +348,7 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
                 fname = properties['list_of_data_files'][0].split("/")[-1][:-12]
                 input_list.append([join(self.config_dict["base_folder"], "nnUNet_raw_data",
                                         "Task{}_{}".format(self.config_dict["Task_ID"], self.config_dict["Task_Name"]),
-                                        "imagesTr", "{}_0000.nii.gz".format(fname)),
+                                        "imagesTr", "{}_0000.nii.gz".format(fname)),  # TODO: Fix
                                    join(folder_with_segs_from_prev_stage, "fold_{}".format(self.fold),
                                         validation_folder_name + "_postprocessed", fname, fname + ".nii.gz")])
                 output_list.append(
@@ -286,7 +358,7 @@ class nnUNetTrainerHive(nnUNetTrainerV2):
                                                        fname + ".nii.gz")),
                      join(self.gt_niftis_folder, fname + ".nii.gz")])
 
-            predict_cases(self.output_folder_base, input_list, output_list, (self.fold,), True, 2, 2,
+            predict_cases(self.output_folder_base, input_list, output_list, (self.fold,), False, 2, 2,
                           disable_postprocessing=True)
 
             self.print_to_log_file("finished prediction")
