@@ -634,7 +634,7 @@ class nnUNetTrainer(NetworkTrainer):
 
             if self.n_tasks > 1:
                 pred_gt_tuples.append([join(output_folder, fname + ".nii.gz"),
-                                       join(self.gt_niftis_folder, fname + "_0000.nii.gz")])
+                                       join(self.gt_niftis_folder, fname + "_{0:04d}.nii.gz".format(self.primary_task))])
             else:
                 pred_gt_tuples.append([join(output_folder, fname + ".nii.gz"),
                                        join(self.gt_niftis_folder, fname + ".nii.gz")])
@@ -661,9 +661,12 @@ class nnUNetTrainer(NetworkTrainer):
             # classes and then rerun the evaluation. Those classes for which this resulted in an improved dice score will
             # have this applied during inference as well
             self.print_to_log_file("determining postprocessing")
+            run_task = None
+            if self.n_tasks > 1:
+                run_task = self.primary_task
             determine_postprocessing(self.output_folder, self.gt_niftis_folder, validation_folder_name,
                                      final_subf_name=validation_folder_name + "_postprocessed", debug=debug,
-                                     assign_disconnected=True, is_multitasking=(self.n_tasks > 1))
+                                     assign_disconnected=True, run_task=run_task)
             # after this the final predictions for the vlaidation set can be found in validation_folder_name_base + "_postprocessed"
             # They are always in that folder, even if no postprocessing as applied!
 
@@ -723,6 +726,8 @@ class nnUNetTrainer(NetworkTrainer):
         global_dc_per_class = [i for i in [2 * i / (2 * i + j + k) for i, j, k in
                                            zip(self.online_eval_tp, self.online_eval_fp, self.online_eval_fn)]
                                if not np.isnan(i)]
+        if self.global_dc_per_class is not None:
+            self.global_dc_per_class.append(global_dc_per_class)
         self.all_val_eval_metrics.append(np.mean(global_dc_per_class))
 
         self.print_to_log_file("Average global foreground Dice:", [np.round(i, 4) for i in global_dc_per_class])
