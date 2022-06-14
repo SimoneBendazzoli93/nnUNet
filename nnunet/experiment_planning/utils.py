@@ -21,6 +21,7 @@ from multiprocessing import Pool
 
 import numpy as np
 from batchgenerators.utilities.file_and_folder_operations import join, isdir, maybe_mkdir_p, subfiles, subdirs, isfile
+
 from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.DatasetAnalyzer import DatasetAnalyzer
 from nnunet.experiment_planning.common_utils import split_4d_nifti
@@ -148,12 +149,17 @@ def crop(task_string, override=False, num_threads=default_num_threads,subfolder=
     if 'n_tasks' in d and d['n_tasks'] > 1:
         n_tasks = d['n_tasks']
 
-    imgcrop = ImageCropper(num_threads, cropped_out_dir)
+    task_type = ["CLASSIFICATION"]
+
+    if 'task_type' in d:
+        task_type = d['task_type']
+
+    imgcrop = ImageCropper(num_threads, cropped_out_dir, task_type)
     imgcrop.run_cropping(lists, overwrite_existing=override, n_tasks=n_tasks)
     if subfolder is None:
         shutil.copy(join(nnUNet_raw_data, task_string, "dataset.json"), cropped_out_dir)
     else:
-        shutil.copy(join(nnUNet_raw_data, task_string,subfolder, "dataset.json"), cropped_out_dir)
+        shutil.copy(join(nnUNet_raw_data, task_string, subfolder, "dataset.json"), cropped_out_dir)
 
 def analyze_dataset(task_string, override=False, collect_intensityproperties=True, num_processes=default_num_threads):
     cropped_out_dir = join(nnUNet_cropped_data, task_string)
