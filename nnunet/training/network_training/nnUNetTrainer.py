@@ -84,7 +84,7 @@ class nnUNetTrainer(NetworkTrainer):
         self.dataset_directory = dataset_directory
         self.output_folder_base = self.output_folder
         self.fold = fold
-
+        self.global_dc_per_class = None
         self.plans = None
 
         # if we are running inference only then the self.dataset_directory is set (due to checkpoint loading) but it
