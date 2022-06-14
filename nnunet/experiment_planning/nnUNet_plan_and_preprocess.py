@@ -73,7 +73,7 @@ def main():
                              "IDENTIFIER, the correct training command would be:\n"
                              "'nnUNet_train CONFIG TRAINER TASKID FOLD -p nnUNetPlans_pretrained_IDENTIFIER "
                              "-pretrained_weights FILENAME'")
-    parser.add_argument("--sub-step", help="Optional value to indicate which cascade step to run.",
+    parser.add_argument("--sub-step", help="Optional value to indicate which sub step to run.",
                         default=None, required=False)
 
     args = parser.parse_args()
