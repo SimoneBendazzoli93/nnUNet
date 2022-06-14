@@ -11,13 +11,14 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
+import os.path
+import shutil
+from collections import OrderedDict
+from multiprocessing import Pool
 
 import SimpleITK as sitk
 import numpy as np
-import shutil
 from batchgenerators.utilities.file_and_folder_operations import *
-from multiprocessing import Pool
-from collections import OrderedDict
 
 
 def create_nonzero_mask(data):
@@ -85,7 +86,7 @@ def load_case_from_list_of_files(data_files, seg_file=None, n_tasks=1):
     return data_npy.astype(np.float32), seg_npy, properties
 
 
-def crop_to_nonzero(data, seg=None, nonzero_label=-1):
+def crop_to_nonzero(data, seg=None, nonzero_label=-1, task_type=None):
     """
 
     :param data:
@@ -93,6 +94,8 @@ def crop_to_nonzero(data, seg=None, nonzero_label=-1):
     :param nonzero_label: this will be written into the segmentation map
     :return:
     """
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
     nonzero_mask = create_nonzero_mask(data)
     bbox = get_bbox_from_mask(nonzero_mask, 0)
 
@@ -110,8 +113,18 @@ def crop_to_nonzero(data, seg=None, nonzero_label=-1):
         seg = np.vstack(cropped_seg)
 
     nonzero_mask = crop_to_bbox(nonzero_mask, bbox)[None]
+    nonzero_seg = []
     if seg is not None:
-        seg[(seg == 0) & (nonzero_mask == 0)] = nonzero_label
+        for c in range(seg.shape[0]):
+            nonzero_seg_mask = seg[c]
+
+            if task_type[c] == "CLASSIFICATION":
+                nonzero_seg_mask[(nonzero_seg_mask == 0) & (nonzero_mask[0] == 0)] = nonzero_label
+            nonzero_seg.append(nonzero_seg_mask.reshape(
+                (1, nonzero_seg_mask.shape[0], nonzero_seg_mask.shape[1], nonzero_seg_mask.shape[2])))
+
+        seg = np.vstack(nonzero_seg)
+
     else:
         nonzero_mask = nonzero_mask.astype(int)
         nonzero_mask[nonzero_mask == 0] = nonzero_label
@@ -125,7 +138,7 @@ def get_patient_identifiers_from_cropped_files(folder):
 
 
 class ImageCropper(object):
-    def __init__(self, num_threads, output_folder=None):
+    def __init__(self, num_threads, output_folder=None, task_type=None):
         """
         This one finds a mask of nonzero elements (must be nonzero in all modalities) and crops the image to that mask.
         In the case of BRaTS and ISLES data this results in a significant reduction in image size
@@ -133,30 +146,42 @@ class ImageCropper(object):
         :param output_folder: whete to store the cropped data
         :param list_of_files:
         """
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         self.output_folder = output_folder
         self.num_threads = num_threads
+        self.task_type = task_type
 
         if self.output_folder is not None:
             maybe_mkdir_p(self.output_folder)
 
     @staticmethod
-    def crop(data, properties, seg=None):
+    def crop(data, properties, seg=None, task_type=None):
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         shape_before = data.shape
-        data, seg, bbox = crop_to_nonzero(data, seg, nonzero_label=-1)
+        data, seg, bbox = crop_to_nonzero(data, seg, nonzero_label=-1, task_type=task_type)
         shape_after = data.shape
         print("before crop:", shape_before, "after crop:", shape_after, "spacing:",
               np.array(properties["original_spacing"]), "\n")
 
         properties["crop_bbox"] = bbox
         properties['classes'] = np.unique(seg)
-        seg[seg < -1] = 0
+
+        for idx, c_seg in enumerate(seg):
+            if task_type[idx] == "CLASSIFICATION":
+                seg[idx][seg[idx] < -1] = 0
+            else:
+                seg[idx][seg[idx] < -10] = -10
         properties["size_after_cropping"] = data[0].shape
         return data, seg, properties
 
     @staticmethod
-    def crop_from_list_of_files(data_files, seg_file=None, n_tasks=1):
+    def crop_from_list_of_files(data_files, seg_file=None, n_tasks=1, task_type=None):
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         data, seg, properties = load_case_from_list_of_files(data_files, seg_file, n_tasks)
-        return ImageCropper.crop(data, properties, seg)
+        return ImageCropper.crop(data, properties, seg, task_type)
 
     def load_crop_save(self, case, case_identifier, overwrite_existing=False, n_tasks=1):
         try:
@@ -164,8 +189,8 @@ class ImageCropper(object):
             if overwrite_existing \
                     or (not os.path.isfile(os.path.join(self.output_folder, "%s.npz" % case_identifier))
                         or not os.path.isfile(os.path.join(self.output_folder, "%s.pkl" % case_identifier))):
-
-                data, seg, properties = self.crop_from_list_of_files(case[:-n_tasks], case[-n_tasks:], n_tasks)
+                data, seg, properties = self.crop_from_list_of_files(case[:-n_tasks], case[-n_tasks:], n_tasks,
+                                                                     self.task_type)
 
                 all_data = np.vstack((data, seg))
                 np.savez_compressed(os.path.join(self.output_folder, "%s.npz" % case_identifier), data=all_data)
@@ -198,8 +223,9 @@ class ImageCropper(object):
         maybe_mkdir_p(output_folder_gt)
         for j, case in enumerate(list_of_files):
             for task in range(n_tasks):
-                if case[-(task+1)] is not None:
-                    shutil.copy(case[-(task+1)], output_folder_gt)
+                if case[-(task + 1)] is not None and not isfile(
+                        output_folder_gt + "/" + os.path.basename(case[-(task + 1)])):
+                    shutil.copy(case[-(task + 1)], output_folder_gt)
 
         list_of_args = []
         for j, case in enumerate(list_of_files):
