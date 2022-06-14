@@ -16,9 +16,10 @@ import shutil
 from collections import OrderedDict
 from copy import deepcopy
 
-import nnunet
 import numpy as np
 from batchgenerators.utilities.file_and_folder_operations import *
+
+import nnunet
 from nnunet.configuration import default_num_threads
 from nnunet.experiment_planning.DatasetAnalyzer import DatasetAnalyzer
 from nnunet.experiment_planning.common_utils import get_pool_and_conv_props_poolLateV2
@@ -432,7 +433,7 @@ class ExperimentPlanner(object):
                                                          self.preprocessor_name, current_module="nnunet.preprocessing")
         assert preprocessor_class is not None
         preprocessor = preprocessor_class(normalization_schemes, use_nonzero_mask_for_normalization,
-                                         self.transpose_forward,
+                                          self.transpose_forward,
                                           intensityproperties)
         target_spacings = [i["current_spacing"] for i in self.plans_per_stage.values()]
         if self.plans['num_stages'] > 1 and not isinstance(num_threads, (list, tuple)):
@@ -443,8 +444,11 @@ class ExperimentPlanner(object):
         n_tasks = 1
         if 'n_tasks' in self.dataset_properties:
             n_tasks = self.dataset_properties['n_tasks']
+        task_type = ["CLASSIFICATION"]
+        if 'task_type' in self.dataset_properties:
+            task_type = self.dataset_properties['task_type']
         preprocessor.run(target_spacings, self.folder_with_cropped_data, self.preprocessed_output_folder,
-                         self.plans['data_identifier'], num_threads, n_tasks=n_tasks)
+                         self.plans['data_identifier'], num_threads, n_tasks=n_tasks, task_type=task_type)
 
 
 if __name__ == "__main__":
