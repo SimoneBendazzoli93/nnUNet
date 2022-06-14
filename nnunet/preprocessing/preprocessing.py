@@ -14,15 +14,16 @@
 
 from collections import OrderedDict
 from copy import deepcopy
+from multiprocessing.pool import Pool
 
+import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
+from batchgenerators.utilities.file_and_folder_operations import *
+from scipy.ndimage.interpolation import map_coordinates
+from skimage.transform import resize
+
 from nnunet.configuration import default_num_threads, RESAMPLING_SEPARATE_Z_ANISO_THRESHOLD
 from nnunet.preprocessing.cropping import get_case_identifier_from_npz, ImageCropper
-from skimage.transform import resize
-from scipy.ndimage.interpolation import map_coordinates
-import numpy as np
-from batchgenerators.utilities.file_and_folder_operations import *
-from multiprocessing.pool import Pool
 
 
 def get_do_separate_z(spacing, anisotropy_threshold=RESAMPLING_SEPARATE_Z_ANISO_THRESHOLD):
@@ -37,7 +38,7 @@ def get_lowres_axis(new_spacing):
 
 def resample_patient(data, seg, original_spacing, target_spacing, order_data=3, order_seg=0, force_separate_z=False,
                      order_z_data=0, order_z_seg=0,
-                     separate_z_anisotropy_threshold=RESAMPLING_SEPARATE_Z_ANISO_THRESHOLD):
+                     separate_z_anisotropy_threshold=RESAMPLING_SEPARATE_Z_ANISO_THRESHOLD, task_type=None):
     """
     :param data:
     :param seg:
@@ -54,6 +55,8 @@ def resample_patient(data, seg, original_spacing, target_spacing, order_data=3, 
 
     :return:
     """
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
     assert not ((data is None) and (seg is None))
     if data is not None:
         assert len(data.shape) == 4, "data must be c x y z"
@@ -96,17 +99,18 @@ def resample_patient(data, seg, original_spacing, target_spacing, order_data=3, 
 
     if data is not None:
         data_reshaped = resample_data_or_seg(data, new_shape, False, axis, order_data, do_separate_z,
-                                             order_z=order_z_data)
+                                             order_z=order_z_data, task_type=task_type)
     else:
         data_reshaped = None
     if seg is not None:
-        seg_reshaped = resample_data_or_seg(seg, new_shape, True, axis, order_seg, do_separate_z, order_z=order_z_seg)
+        seg_reshaped = resample_data_or_seg(seg, new_shape, True, axis, order_seg, do_separate_z, order_z=order_z_seg,
+                                            task_type=task_type)
     else:
         seg_reshaped = None
     return data_reshaped, seg_reshaped
 
 
-def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separate_z=False, order_z=0):
+def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separate_z=False, order_z=0, task_type=None):
     """
     separate_z=True will resample with order 0 along z
     :param data:
@@ -119,6 +123,8 @@ def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separat
     :param order_z: only applies if do_separate_z is True
     :return:
     """
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
     assert len(data.shape) == 4, "data must be (c, x, y, z)"
     if is_seg:
         resize_fn = resize_segmentation
@@ -145,6 +151,8 @@ def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separat
             reshaped_final_data = []
             for c in range(data.shape[0]):
                 reshaped_data = []
+                if is_seg and task_type[c] == "REGRESSION":
+                    resize_fn = resize
                 for slice_id in range(shape[axis]):
                     if axis == 0:
                         reshaped_data.append(resize_fn(data[c, slice_id], new_shape_2d, order, **kwargs))
@@ -190,6 +198,8 @@ def resample_data_or_seg(data, new_shape, is_seg, axis=None, order=3, do_separat
             print("no separate z, order", order)
             reshaped = []
             for c in range(data.shape[0]):
+                if is_seg and task_type[c] == "REGRESSION":
+                    resize_fn = resize
                 reshaped.append(resize_fn(data[c], new_shape, order, **kwargs)[None])
             reshaped_final_data = np.vstack(reshaped)
         return reshaped_final_data.astype(dtype_data)
@@ -222,7 +232,7 @@ class GenericPreprocessor(object):
             properties = pickle.load(f)
         return data, seg, properties
 
-    def resample_and_normalize(self, data, target_spacing, properties, seg=None, force_separate_z=None):
+    def resample_and_normalize(self, data, target_spacing, properties, seg=None, force_separate_z=None, task_type=None):
         """
         data and seg must already have been transposed by transpose_forward. properties are the un-transposed values
         (spacing etc)
@@ -236,6 +246,8 @@ class GenericPreprocessor(object):
 
         # target_spacing is already transposed, properties["original_spacing"] is not so we need to transpose it!
         # data, seg are already transposed. Double check this using the properties
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         original_spacing_transposed = np.array(properties["original_spacing"])[self.transpose_forward]
         before = {
             'spacing': properties["original_spacing"],
@@ -248,7 +260,8 @@ class GenericPreprocessor(object):
 
         data, seg = resample_patient(data, seg, np.array(original_spacing_transposed), target_spacing, 3, 1,
                                      force_separate_z=force_separate_z, order_z_data=0, order_z_seg=0,
-                                     separate_z_anisotropy_threshold=self.resample_separate_z_anisotropy_threshold)
+                                     separate_z_anisotropy_threshold=self.resample_separate_z_anisotropy_threshold,
+                                     task_type=task_type)
         after = {
             'spacing': target_spacing,
             'data.shape (data is resampled)': data.shape
@@ -256,7 +269,9 @@ class GenericPreprocessor(object):
         print("before:", before, "\nafter: ", after, "\n")
 
         if seg is not None:  # hippocampus 243 has one voxel with -2 as label. wtf?
-            seg[seg < -1] = 0
+            for idx, seg_c in enumerate(seg):
+                if task_type[idx] == "CLASSIFICATION":
+                    seg[idx][seg[idx] < -1] = 0
 
         properties["size_after_resampling"] = data[0].shape
         properties["spacing_after_resampling"] = target_spacing
@@ -318,7 +333,9 @@ class GenericPreprocessor(object):
         return data.astype(np.float32), seg, properties
 
     def _run_internal(self, target_spacing, case_identifier, output_folder_stage, cropped_output_dir, force_separate_z,
-                      all_classes, n_tasks=1):
+                      all_classes, n_tasks=1, task_type=None):
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         print("Running: ", case_identifier)
         data, seg, properties = self.load_cropped(cropped_output_dir, case_identifier, n_tasks)
 
@@ -326,7 +343,7 @@ class GenericPreprocessor(object):
         seg = seg.transpose((0, *[i + 1 for i in self.transpose_forward]))
 
         data, seg, properties = self.resample_and_normalize(data, target_spacing,
-                                                            properties, seg, force_separate_z)
+                                                            properties, seg, force_separate_z, task_type)
 
         all_data = np.vstack((data, seg)).astype(np.float32)
 
@@ -357,7 +374,7 @@ class GenericPreprocessor(object):
             pickle.dump(properties, f)
 
     def run(self, target_spacings, input_folder_with_cropped_npz, output_folder, data_identifier,
-            num_threads=default_num_threads, force_separate_z=None, n_tasks=1):
+            num_threads=default_num_threads, force_separate_z=None, n_tasks=1, task_type=None):
         """
 
         :param target_spacings: list of lists [[1.25, 1.25, 5]]
@@ -367,6 +384,8 @@ class GenericPreprocessor(object):
         :param force_separate_z: None
         :return:
         """
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         print("Initializing to run preprocessing")
         print("npz folder:", input_folder_with_cropped_npz)
         print("output_folder:", output_folder)
@@ -433,7 +452,7 @@ class Preprocessor3DDifferentResampling(GenericPreprocessor):
         print("before:", before, "\nafter: ", after, "\n")
 
         if seg is not None:  # hippocampus 243 has one voxel with -2 as label. wtf?
-            seg[seg < -1] = 0
+            seg[0][seg[0] < -1] = 0
 
         properties["size_after_resampling"] = data[0].shape
         properties["spacing_after_resampling"] = target_spacing
