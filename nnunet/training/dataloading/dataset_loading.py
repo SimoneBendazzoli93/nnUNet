@@ -13,14 +13,14 @@
 #    limitations under the License.
 
 from collections import OrderedDict
-import numpy as np
 from multiprocessing import Pool
 
+import numpy as np
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
+from batchgenerators.utilities.file_and_folder_operations import *
 
 from nnunet.configuration import default_num_threads
 from nnunet.paths import preprocessing_output_dir
-from batchgenerators.utilities.file_and_folder_operations import *
 
 
 def get_case_identifiers(folder):
@@ -155,7 +155,7 @@ def crop_2D_image_force_fg(img, crop_size, valid_voxels):
 class DataLoader3D(SlimDataLoaderBase):
     def __init__(self, data, patch_size, final_patch_size, batch_size, has_prev_stage=False,
                  oversample_foreground_percent=0.0, memmap_mode="r", pad_mode="edge", pad_kwargs_data=None,
-                 pad_sides=None, n_tasks=1):
+                 pad_sides=None, n_tasks=1, task_type=None):
         """
         This is the basic data loader for 3D networks. It uses preprocessed data as produced by my (Fabian) preprocessing.
         You can load the data with load_dataset(folder) where folder is the folder where the npz files are located. If there
@@ -180,6 +180,8 @@ class DataLoader3D(SlimDataLoaderBase):
         :param oversample_foreground: half the batch will be forced to contain at least some foreground (equal prob for each of the foreground classes)
         """
         super(DataLoader3D, self).__init__(data, batch_size, None)
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         if pad_kwargs_data is None:
             pad_kwargs_data = OrderedDict()
         self.pad_kwargs_data = pad_kwargs_data
@@ -201,6 +203,7 @@ class DataLoader3D(SlimDataLoaderBase):
         self.num_channels = None
         self.pad_sides = pad_sides
         self.data_shape, self.seg_shape = self.determine_shapes()
+        self.task_type = task_type
 
     def get_do_oversample(self, batch_idx):
         return not batch_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
@@ -363,18 +366,39 @@ class DataLoader3D(SlimDataLoaderBase):
                              self.pad_mode, **self.pad_kwargs_data)
 
             for task in range(self.n_tasks):
-                if task == self.n_tasks-1:
-                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):], ((0, 0),
-                                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
-                                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
-                                   'constant', **{'constant_values': -1})
+                b_val = -1
+                if self.task_type[task] != "CLASSIFICATION":
+                    b_val = -10
+                if task == self.n_tasks - 1:
+                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks - task):], ((0, 0),
+                                                                                   (-min(0, bbox_x_lb),
+                                                                                    max(bbox_x_ub - shape[0], 0)),
+                                                                                   (-min(0, bbox_y_lb),
+                                                                                    max(bbox_y_ub - shape[1], 0)),
+                                                                                   (-min(0, bbox_z_lb),
+                                                                                    max(bbox_z_ub - shape[2], 0))),
+                                          'constant', **{'constant_values': b_val})
                 else:
-                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks-task):-(self.n_tasks-task)+1], ((0, 0),
-                                                        (-min(0, bbox_x_lb), max(bbox_x_ub - shape[0], 0)),
-                                                        (-min(0, bbox_y_lb), max(bbox_y_ub - shape[1], 0)),
-                                                        (-min(0, bbox_z_lb), max(bbox_z_ub - shape[2], 0))),
-                                   'constant', **{'constant_values': -1})
+                    seg[j, task] = np.pad(case_all_data[-(self.n_tasks - task):-(self.n_tasks - task) + 1], ((0, 0),
+                                                                                                             (-min(0,
+                                                                                                                   bbox_x_lb),
+                                                                                                              max(bbox_x_ub -
+                                                                                                                  shape[
+                                                                                                                      0],
+                                                                                                                  0)),
+                                                                                                             (-min(0,
+                                                                                                                   bbox_y_lb),
+                                                                                                              max(bbox_y_ub -
+                                                                                                                  shape[
+                                                                                                                      1],
+                                                                                                                  0)),
+                                                                                                             (-min(0,
+                                                                                                                   bbox_z_lb),
+                                                                                                              max(bbox_z_ub -
+                                                                                                                  shape[
+                                                                                                                      2],
+                                                                                                                  0))),
+                                          'constant', **{'constant_values': -1})
             if seg_from_previous_stage is not None:
                 seg[j, 1] = np.pad(seg_from_previous_stage, ((0, 0),
                                                              (-min(0, bbox_x_lb),
