@@ -310,6 +310,9 @@ class GenericPreprocessor(object):
                     data[c][seg[-1] < 0] = 0
             elif scheme == 'noNorm':
                 pass
+            elif scheme == 'PET':
+                print(self.intensityproperties[c]['max'])
+                print(self.intensityproperties[c]['min'])
             else:
                 if use_nonzero_mask[c]:
                     mask = seg[-1] >= 0
@@ -603,7 +606,7 @@ class PreprocessorFor2D(GenericPreprocessor):
                                                 transpose_forward, intensityproperties)
 
     def run(self, target_spacings, input_folder_with_cropped_npz, output_folder, data_identifier,
-            num_threads=default_num_threads, force_separate_z=None,n_tasks=1):
+            num_threads=default_num_threads, force_separate_z=None, n_tasks=1, task_type=None):
         print("Initializing to run preprocessing")
         print("npz folder:", input_folder_with_cropped_npz)
         print("output_folder:", output_folder)
