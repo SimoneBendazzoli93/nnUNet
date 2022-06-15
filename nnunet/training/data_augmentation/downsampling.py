@@ -13,11 +13,12 @@
 #    limitations under the License.
 
 
+import numpy as np
 import torch
-from batchgenerators.augmentations.utils import convert_seg_image_to_one_hot_encoding_batched, resize_segmentation
+from batchgenerators.augmentations.utils import convert_seg_image_to_one_hot_encoding_batched, resize_segmentation, \
+    resize
 from batchgenerators.transforms.abstract_transforms import AbstractTransform
 from torch.nn.functional import avg_pool2d, avg_pool3d
-import numpy as np
 
 
 class DownsampleSegForDSTransform3(AbstractTransform):
@@ -71,20 +72,27 @@ class DownsampleSegForDSTransform2(AbstractTransform):
     '''
     data_dict['output_key'] will be a list of segmentations scaled according to ds_scales
     '''
-    def __init__(self, ds_scales=(1, 0.5, 0.25), order=0, input_key="seg", output_key="seg", axes=None):
+
+    def __init__(self, ds_scales=(1, 0.5, 0.25), order=0, input_key="seg", output_key="seg", axes=None, task_type=None):
+        if task_type is None:
+            task_type = ["CLASSIFICATION"]
         self.axes = axes
         self.output_key = output_key
         self.input_key = input_key
         self.order = order
         self.ds_scales = ds_scales
+        self.task_type = task_type
 
     def __call__(self, **data_dict):
         data_dict[self.output_key] = downsample_seg_for_ds_transform2(data_dict[self.input_key], self.ds_scales,
-                                                                      self.order, self.axes)
+                                                                      self.order, self.axes, self.task_type)
         return data_dict
 
 
-def downsample_seg_for_ds_transform2(seg, ds_scales=((1, 1, 1), (0.5, 0.5, 0.5), (0.25, 0.25, 0.25)), order=0, axes=None):
+def downsample_seg_for_ds_transform2(seg, ds_scales=((1, 1, 1), (0.5, 0.5, 0.5), (0.25, 0.25, 0.25)), order=0,
+                                     axes=None, task_type=None):
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
     if axes is None:
         axes = list(range(2, len(seg.shape)))
     output = []
@@ -99,6 +107,10 @@ def downsample_seg_for_ds_transform2(seg, ds_scales=((1, 1, 1), (0.5, 0.5, 0.5),
             out_seg = np.zeros(new_shape, dtype=seg.dtype)
             for b in range(seg.shape[0]):
                 for c in range(seg.shape[1]):
-                    out_seg[b, c] = resize_segmentation(seg[b, c], new_shape[2:], order)
+                    if task_type[c] == "CLASSIFICATION":
+                        out_seg[b, c] = resize_segmentation(seg[b, c], new_shape[2:], order)
+                    else:
+                        out_seg[b, c] = resize(seg[b, c], new_shape[2:], 1)
+
             output.append(out_seg)
     return output

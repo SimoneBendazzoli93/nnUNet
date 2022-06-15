@@ -43,7 +43,9 @@ def get_moreDA_augmentation(dataloader_train, dataloader_val, patch_size, params
                             seeds_train=None, seeds_val=None, order_seg=1, order_data=3, deep_supervision_scales=None,
                             soft_ds=False,
                             classes=None, pin_memory=True, regions=None,
-                            use_nondetMultiThreadedAugmenter: bool = False):
+                            use_nondetMultiThreadedAugmenter: bool = False, task_type=None):
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
     assert params.get('mirror') is None, "old version of params, use new keyword do_mirror"
 
     tr_transforms = []
@@ -187,7 +189,7 @@ def get_moreDA_augmentation(dataloader_train, dataloader_val, patch_size, params
             val_transforms.append(DownsampleSegForDSTransform3(deep_supervision_scales, 'target', 'target', classes))
         else:
             val_transforms.append(DownsampleSegForDSTransform2(deep_supervision_scales, 0, input_key='target',
-                                                               output_key='target'))
+                                                               output_key='target', task_type=task_type))
 
     val_transforms.append(NumpyToTensor(['data', 'target'], 'float'))
     val_transforms = Compose(val_transforms)
