@@ -12,16 +12,16 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from batchgenerators.utilities.file_and_folder_operations import *
+import pickle
+from collections import OrderedDict
 from multiprocessing import Pool
 
-from nnunet.configuration import default_num_threads
-from nnunet.paths import nnUNet_raw_data, nnUNet_cropped_data
 import numpy as np
-import pickle
-from nnunet.preprocessing.cropping import get_patient_identifiers_from_cropped_files
+from batchgenerators.utilities.file_and_folder_operations import *
 from skimage.morphology import label
-from collections import OrderedDict
+
+from nnunet.configuration import default_num_threads
+from nnunet.preprocessing.cropping import get_patient_identifiers_from_cropped_files
 
 
 class DatasetAnalyzer(object):
@@ -39,6 +39,8 @@ class DatasetAnalyzer(object):
         self.n_tasks = 1
         if 'n_tasks' in datasetjson and datasetjson['n_tasks'] > 1:
             self.n_tasks = datasetjson['n_tasks']
+        if 'task_type' in datasetjson:
+            self.task_type = datasetjson['task_type']
         self.sizes = self.spacings = None
         self.patient_identifiers = get_patient_identifiers_from_cropped_files(self.folder_with_cropped_data)
         assert isfile(join(self.folder_with_cropped_data, "dataset.json")), \
@@ -259,6 +261,7 @@ class DatasetAnalyzer(object):
         dataset_properties['intensityproperties'] = intensityproperties
         dataset_properties['size_reductions'] = size_reductions  # {patient_id: size_reduction}
         dataset_properties['n_tasks'] = self.n_tasks
+        dataset_properties['task_type'] = self.task_type
 
         save_pickle(dataset_properties, join(self.folder_with_cropped_data, "dataset_properties.pkl"))
         return dataset_properties
