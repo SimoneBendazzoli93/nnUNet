@@ -311,8 +311,9 @@ class GenericPreprocessor(object):
             elif scheme == 'noNorm':
                 pass
             elif scheme == 'PET':
-                print(self.intensityproperties[c]['max'])
-                print(self.intensityproperties[c]['min'])
+                data[c] = (data[c] - self.intensityproperties[c]['percentile_00_5']) / (
+                            self.intensityproperties[c]['percentile_99_5'] - self.intensityproperties[c][
+                        'percentile_00_5'])
             else:
                 if use_nonzero_mask[c]:
                     mask = seg[-1] >= 0
