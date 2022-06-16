@@ -17,7 +17,7 @@ import shutil
 from collections import OrderedDict
 from multiprocessing import Pool
 from time import sleep
-from typing import Tuple, List
+from typing import Tuple
 
 import matplotlib
 import numpy as np
@@ -398,16 +398,18 @@ class nnUNetTrainer(NetworkTrainer):
     def get_basic_generators(self):
         self.load_dataset()
         self.do_split()
-        self.n_tasks = 1#len(self.dataset[next(iter(self.dataset))]['properties']["seg_file"])  # TODO: REVIEW
+        self.n_tasks = len(self.dataset[next(iter(self.dataset))]['properties']["seg_file"])  # TODO: REVIEW
+        self.task_type = self.plans['dataset_properties']['task_type']
+
         if self.threeD:
             dl_tr = DataLoader3D(self.dataset_tr, self.basic_generator_patch_size, self.patch_size, self.batch_size,
                                  False, oversample_foreground_percent=self.oversample_foreground_percent,
                                  pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r',
-                                 n_tasks=self.n_tasks)
+                                 n_tasks=self.n_tasks, task_type=self.task_type)
             dl_val = DataLoader3D(self.dataset_val, self.patch_size, self.patch_size, self.batch_size, False,
                                   oversample_foreground_percent=self.oversample_foreground_percent,
                                   pad_mode="constant", pad_sides=self.pad_all_sides, memmap_mode='r',
-                                  n_tasks=self.n_tasks)
+                                  n_tasks=self.n_tasks, task_type=self.task_type)
         else:
             dl_tr = DataLoader2D(self.dataset_tr, self.basic_generator_patch_size, self.patch_size, self.batch_size,
                                  oversample_foreground_percent=self.oversample_foreground_percent,
