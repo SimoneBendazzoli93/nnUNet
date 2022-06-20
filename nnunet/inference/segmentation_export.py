@@ -17,11 +17,12 @@ import sys
 from copy import deepcopy
 from typing import Union, Tuple
 
-import numpy as np
 import SimpleITK as sitk
+import numpy as np
 from batchgenerators.augmentations.utils import resize_segmentation
-from nnunet.preprocessing.preprocessing import get_lowres_axis, get_do_separate_z, resample_data_or_seg
 from batchgenerators.utilities.file_and_folder_operations import *
+
+from nnunet.preprocessing.preprocessing import get_lowres_axis, get_do_separate_z, resample_data_or_seg
 
 
 def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.ndarray], out_fname: str,
@@ -30,7 +31,8 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
                                          seg_postprogess_fn: callable = None, seg_postprocess_args: tuple = None,
                                          resampled_npz_fname: str = None,
                                          non_postprocessed_fname: str = None, force_separate_z: bool = None,
-                                         interpolation_order_z: int = 0, verbose: bool = True):
+                                         interpolation_order_z: int = 0, verbose: bool = True, task_type=None,
+                                         primary_task=0):
     """
     This is a utility for writing segmentations to nifto and npz. It requires the data to have been preprocessed by
     GenericPreprocessor because it depends on the property dictionary output (dct) to know the geometry of the original
@@ -61,6 +63,9 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
     :param verbose:
     :return:
     """
+    if task_type is None:
+        task_type = ["CLASSIFICATION"]
+
     if verbose: print("force_separate_z:", force_separate_z, "interpolation order:", order)
 
     if isinstance(segmentation_softmax, str):
@@ -115,9 +120,14 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
         if region_class_order is not None:
             properties_dict['regions_class_order'] = region_class_order
         save_pickle(properties_dict, resampled_npz_fname[:-4] + ".pkl")
+    regression = False
+    if task_type[primary_task] == "REGRESSION":
+        regression = True
 
-    if region_class_order is None:
+    if region_class_order is None and not regression:
         seg_old_spacing = seg_old_spacing.argmax(0)
+    elif regression:
+        seg_old_spacing = np.squeeze(seg_old_spacing)
     else:
         seg_old_spacing_final = np.zeros(seg_old_spacing.shape[1:])
         for i, c in enumerate(region_class_order):
@@ -141,7 +151,10 @@ def save_segmentation_nifti_from_softmax(segmentation_softmax: Union[str, np.nda
     else:
         seg_old_size_postprocessed = seg_old_size
 
-    seg_resized_itk = sitk.GetImageFromArray(seg_old_size_postprocessed.astype(np.uint8))
+    if regression:
+        seg_resized_itk = sitk.GetImageFromArray(seg_old_size_postprocessed.astype(np.float))
+    else:
+        seg_resized_itk = sitk.GetImageFromArray(seg_old_size_postprocessed.astype(np.uint8))
     seg_resized_itk.SetSpacing(properties_dict['itk_spacing'])
     seg_resized_itk.SetOrigin(properties_dict['itk_origin'])
     seg_resized_itk.SetDirection(properties_dict['itk_direction'])
