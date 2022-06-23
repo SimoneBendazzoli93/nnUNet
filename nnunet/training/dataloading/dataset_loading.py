@@ -86,7 +86,7 @@ def delete_npy(folder):
         os.remove(n)
 
 
-def load_dataset(folder, num_cases_properties_loading_threshold=1000):
+def load_dataset(folder, num_cases_properties_loading_threshold=1100):
     # we don't load the actual data but instead return the filename to the np file.
     print('loading dataset')
     case_identifiers = get_case_identifiers(folder)
@@ -216,7 +216,7 @@ class DataLoader3D(SlimDataLoaderBase):
 
         k = list(self._data.keys())[0]
         if isfile(self._data[k]['data_file'][:-4] + ".npy"):
-            case_all_data = np.load(self._data[k]['data_file'][:-4] + ".npy", self.memmap_mode)
+            case_all_data = np.load(self._data[k]['data_file'][:-4] + ".npy", 'r+')
         else:
             case_all_data = np.load(self._data[k]['data_file'])['data']
         num_color_channels = case_all_data.shape[0] - self.n_tasks
@@ -246,7 +246,7 @@ class DataLoader3D(SlimDataLoaderBase):
             # cases are stored as npz, but we require unpack_dataset to be run. This will decompress them into npy
             # which is much faster to access
             if isfile(self._data[i]['data_file'][:-4] + ".npy"):
-                case_all_data = np.load(self._data[i]['data_file'][:-4] + ".npy", self.memmap_mode)
+                case_all_data = np.load(self._data[i]['data_file'][:-4] + ".npy", 'r+')
             else:
                 case_all_data = np.load(self._data[i]['data_file'])['data']
 
@@ -257,7 +257,7 @@ class DataLoader3D(SlimDataLoaderBase):
             if self.has_prev_stage:
                 if isfile(self._data[i]['seg_from_prev_stage_file'][:-4] + ".npy"):
                     segs_from_previous_stage = np.load(self._data[i]['seg_from_prev_stage_file'][:-4] + ".npy",
-                                                       mmap_mode=self.memmap_mode)[None]
+                                                       mmap_mode='r+')[None]
                 else:
                     segs_from_previous_stage = np.load(self._data[i]['seg_from_prev_stage_file'])['data'][None]
                 # we theoretically support several possible previsous segmentations from which only one is sampled. But
@@ -313,7 +313,7 @@ class DataLoader3D(SlimDataLoaderBase):
                     # this only happens if some image does not contain foreground voxels at all
                     selected_class = None
                     voxels_of_that_class = None
-                    print('case does not contain any foreground classes', i)
+                    # print('case does not contain any foreground classes', i)
                 else:
                     selected_class = np.random.choice(foreground_classes)
 
