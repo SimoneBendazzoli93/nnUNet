@@ -411,7 +411,37 @@ def avg_surface_distance_symmetric(test=None, reference=None, confusion_matrix=N
     return np.mean((hd1.mean(), hd2.mean()))
 
 
+def mean_absolute_error(test=None, reference=None, **kwargs):
+    reference = np.clip(reference, -10, 10)
+    return np.absolute(np.subtract(reference, test)).mean()
+
+
+def mean_squared_error(test=None, reference=None, **kwargs):
+    reference = np.clip(reference, -10, 10)
+    return np.square(np.subtract(reference, test)).mean()
+
+
+def root_mean_squared_error(test=None, reference=None, **kwargs):
+    reference = np.clip(reference, -10, 10)
+    return np.sqrt(np.square(np.subtract(reference, test)).mean())
+
+
+def maximum_absolute_error(test=None, reference=None, **kwargs):
+    reference = np.clip(reference, -10, 10)
+    return np.max(np.absolute(np.subtract(reference, test)))
+
+
+def maximum_absolute_error_95(test=None, reference=None, **kwargs):
+    reference = np.clip(reference, -10, 10)
+    return np.percentile(np.absolute(np.subtract(reference, test)), 95)
+
+
 ALL_METRICS = {
+    "MAE": mean_absolute_error,
+    "MSE": mean_squared_error,
+    "RMSE": root_mean_squared_error,
+    "MaxAE": maximum_absolute_error,
+    "Max_AE_95": maximum_absolute_error_95,
     "False Positive Rate": false_positive_rate,
     "Dice": dice,
     "Jaccard": jaccard,
