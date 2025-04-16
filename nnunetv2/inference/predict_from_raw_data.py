@@ -503,6 +503,12 @@ class nnUNetPredictor(object):
             else:
                 prediction += self.predict_sliding_window_return_logits(data).to('cpu')
 
+        if len(self.list_of_parameters) == 0:
+            if prediction is None:
+                prediction = self.predict_sliding_window_return_logits(data).to('cpu')
+            else:
+                prediction += self.predict_sliding_window_return_logits(data).to('cpu')
+        
         if len(self.list_of_parameters) > 1:
             prediction /= len(self.list_of_parameters)
 
@@ -641,9 +647,12 @@ class nnUNetPredictor(object):
     def predict_sliding_window_return_logits(self, input_image: torch.Tensor) \
             -> Union[np.ndarray, torch.Tensor]:
         assert isinstance(input_image, torch.Tensor)
-        self.network = self.network.to(self.device)
-        self.network.eval()
-
+        try:
+            self.network = self.network.to(self.device)
+            self.network.eval()
+        except AttributeError as e:
+            print('This is a torchscript model. It cannot be moved to a device.')
+            print(e)                
         empty_cache(self.device)
 
         # Autocast can be annoying
