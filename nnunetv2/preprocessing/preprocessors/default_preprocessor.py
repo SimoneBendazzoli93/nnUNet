@@ -15,7 +15,7 @@ import math
 import multiprocessing
 import shutil
 from time import sleep
-from typing import Tuple
+from typing import Tuple, Union
 
 import SimpleITK
 import numpy as np
